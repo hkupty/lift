@@ -10,7 +10,6 @@ const json = @import("json.zig");
 // TODO: Tweak StepsList/ExecutionPlan to prioritize no-dependency steps first (i.e. A <- B <- C; D <- E <- C should yield [A, D, B, E, C] instead of [A, B, D, E, C].
 // TODO: Implement (separate file) merkle-tree cache based on project steps-graph (i.e. for cacheable tasks);
 // TODO: Memoize/pre-process execution plan for quicker resolution
-// TODO: Add project build folder path to project struct
 
 pub const StepErrors = error{
     /// This error is fired when a step is re-defined.
@@ -37,8 +36,8 @@ pub const Step = struct {
     runner: []const u8,
     data: StepData,
 
-    pub fn run(self: *Step) !void {
-        try self.data.asJson(self.name);
+    pub fn run(self: *Step, project: *Project) !void {
+        try self.data.asJson(self.name, project.buildPath);
         // TODO: Locate runner
         // it can be either a path-based binary(+ lift installation folder) or a remote target that might need downloading (future);
         // TODO: Aggregate arguments to runner (self.data + dependencies outputs);
@@ -60,20 +59,18 @@ pub const StepData = union(enum) {
     map: std.StringHashMap([]u8),
     none: void,
 
-    pub fn asJson(self: *StepData, step: StepName) !void {
+    pub fn asJson(self: *StepData, step: StepName, basePath: []const u8) !void {
         switch (self.*) {
             .list => |ls| {
                 var fpathBuffer: [4096]u8 = undefined;
-                // HACK: Replace /tmp/lift-data... with proper project build path
-                const fpath = try std.fmt.bufPrint(&fpathBuffer, "/tmp/lift-data-{s}.json", .{step});
+                const fpath = try std.fmt.bufPrint(&fpathBuffer, "{s}/data-{s}.json", .{ basePath, step });
                 const datafile = try std.fs.createFileAbsolute(fpath, .{});
                 defer datafile.close();
                 try json.writeList(datafile, ls);
             },
             .map => |mp| {
                 var fpathBuffer: [4096]u8 = undefined;
-                // HACK: Replace /tmp/lift-data... with proper project build path
-                const fpath = try std.fmt.bufPrint(&fpathBuffer, "/tmp/lift-data-{s}.json", .{step});
+                const fpath = try std.fmt.bufPrint(&fpathBuffer, "{s}/data-{s}.json", .{ basePath, step });
                 const datafile = try std.fs.createFileAbsolute(fpath, .{});
                 defer datafile.close();
                 try json.writeMap(datafile, mp);
@@ -85,6 +82,7 @@ pub const StepData = union(enum) {
 
 pub const ExecutionPlan = struct {
     execution: u64,
+    project: *Project,
     steps: []*Step,
 
     pub fn deinit(self: *ExecutionPlan, allocator: std.mem.Allocator) void {
@@ -108,7 +106,7 @@ pub const ExecutionPlan = struct {
     pub fn run(self: *ExecutionPlan) !void {
         for (self.steps) |step| {
             self.execution |= step.bitPosition;
-            try step.run();
+            try step.run(self.project);
         }
     }
 };
@@ -141,6 +139,8 @@ const StepsList = struct {
 
 pub const Project = struct {
     // TODO: Add project name
+    name: []u8,
+    buildPath: []u8,
     steps: std.StringHashMap(Step),
     arena: std.heap.ArenaAllocator,
 
@@ -160,19 +160,47 @@ pub const Project = struct {
 
         return .{
             .execution = 0,
+            .project = self,
             .steps = stepsSlice,
         };
     }
 
-    pub fn init(allocator: std.mem.Allocator) !*Project {
+    pub fn init(allocator: std.mem.Allocator, name: []const u8) !*Project {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
         const arenaAllocator = arena.allocator();
 
+        const buildPath = try std.fmt.allocPrint(arenaAllocator, "/tmp/lift/build-{s}/", .{name});
+
+        const ownedName = try arenaAllocator.dupe(u8, name);
+
+        std.fs.makeDirAbsolute(buildPath) catch |err| {
+            switch (err) {
+                std.fs.Dir.MakeError.FileNotFound => {
+                    std.fs.makeDirAbsolute("/tmp/lift/") catch |perr| {
+                        switch (perr) {
+                            std.fs.Dir.MakeError.PathAlreadyExists => {
+                                // TODO: Log
+                            },
+                            else => return perr,
+                        }
+                    };
+                    try std.fs.makeDirAbsolute(buildPath);
+                },
+
+                std.fs.Dir.MakeError.PathAlreadyExists => {
+                    // TODO: Log
+                },
+                else => return err,
+            }
+        };
+
         const proj = try arenaAllocator.create(Project);
         proj.* = .{
             .arena = arena,
+            .name = ownedName,
+            .buildPath = buildPath,
             .steps = std.StringHashMap(Step).init(allocator),
         };
 
@@ -197,7 +225,7 @@ pub fn parseString(allocator: std.mem.Allocator, data: []const u8) !*Project {
         // }
     }
 
-    var project = try Project.init(allocator);
+    var project = try Project.init(allocator, "dummy");
     errdefer project.deinit();
 
     const arenaAllocator = project.arena.allocator();
