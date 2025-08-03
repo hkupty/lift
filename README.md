@@ -57,7 +57,7 @@ dependsOn = [
     "sources",
     "testSources",
 
-    "dependencies"
+    "dependencies",
     "testDependencies"
 ]
 
@@ -93,9 +93,12 @@ The structure is generic and lean:
 
 Steps declare their dependencies to other steps and the composite project is a graph of all the steps and their dependencies.
 
-Take the example below:
+Take a look at the example above.
 
-The `jar` target depends on the `build` target, which in turn will depend on `compile` and `test`, each with their set of dependencies
+The `jar` target depends on the `build` target, which in turn will depend on `compile` and `test`, each with their set of dependencies.
+
+Some `Steps` have `data` associated, which can be either a list or a map, and can be seen as some configuration for the step to execute correctly.
+
 
 ### 🧩 Extensible
 
@@ -103,11 +106,9 @@ As you saw in the example above, each `Step` declares their own data, their runn
 
 This also opens up the possibility to writing your own runners or community-based solutions.
 
-Architecturally speaking, a `runner` is a separated process which will take as arguments the paths to the files containing the output of its dependencies, one for each dependency, in json.
+Architecturally speaking, a runner is a program that Lift executes to fulfill a step. It takes JSON metadata from its dependencies and returns a JSON result describing its output.
 
-It is expected to output a json document containing its output for any other step to consume.
-
-This must _not_ include the binary artifacts, if any, but should include the paths to such files.
+Those json files must _not_ include the binary artifacts, if any, but should include the paths to such files.
 
 ### 🫂 CI-Friendly
 
@@ -124,6 +125,19 @@ Lift should enable delivering things easily. It is a tool to aid in the release 
 Another core goal is to enable seamless integration of technologies such as `jlink` or building containers from the build system,
 so technology can evolve around lift while it is not a blocker for adoption or testing them.
 
+## ❌ What Lift _isn't_
+
+### Not a Maven/Gradle plugin system
+
+Lift is a completely new and independent build system, built from scratch, with the intention of providing great developer experience.
+
+### Not a general-purpose task runner like Make
+
+Lift is not a Make/Just/Taskfile implementation. It is designed with building apps and systems in mind with clear task inter-dependencies and artifact deliverables. Although it is _possible_ to achieve similar results, using Lift for that purpose would be unnecessarily more complex that just using those tools instead.
+
+### Not limited to Java forever (though JVM is the current focus)
+
+As a small starting project, we need to start somewhere and trying to embrace everything is a recipe for disaster. Over time, more technologies could be supported, so growing from java to other JVM languages is a natural next step (one could imagine, assuming Lift is already fully implemented). It will, of course, depend on the project longevity and sustainability.
 
 ## ❔ Q&A
 
