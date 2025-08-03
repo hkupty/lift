@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const tomlz = @import("tomlz");
+const json = @import("json.zig");
 
 // TODO: Implement `listener` steps, which declare inverse dependency (they're executed when their dependency executes);
 // TODO: Define step input/output contract;
@@ -9,6 +10,7 @@ const tomlz = @import("tomlz");
 // TODO: Tweak StepsList/ExecutionPlan to prioritize no-dependency steps first (i.e. A <- B <- C; D <- E <- C should yield [A, D, B, E, C] instead of [A, B, D, E, C].
 // TODO: Implement (separate file) merkle-tree cache based on project steps-graph (i.e. for cacheable tasks);
 // TODO: Memoize/pre-process execution plan for quicker resolution
+// TODO: Add project build folder path to project struct
 
 pub const StepErrors = error{
     /// This error is fired when a step is re-defined.
@@ -36,6 +38,7 @@ pub const Step = struct {
     data: StepData,
 
     pub fn run(self: *Step) !void {
+        try self.data.asJson(self.name);
         std.debug.print("[{s}] Running {s}\n", .{ self.name, self.runner });
     }
 };
@@ -45,6 +48,28 @@ pub const StepData = union(enum) {
     // TODO: replace with std.HashMapUnmanaged for better memory usage (i.e. arenas)
     map: std.StringHashMap([]u8),
     none: void,
+
+    pub fn asJson(self: *StepData, step: StepName) !void {
+        switch (self.*) {
+            .list => |ls| {
+                var fpathBuffer: [4096]u8 = undefined;
+                // HACK: Replace /tmp/lift-data... with proper project build path
+                const fpath = try std.fmt.bufPrint(&fpathBuffer, "/tmp/lift-data-{s}.json", .{step});
+                const datafile = try std.fs.createFileAbsolute(fpath, .{});
+                defer datafile.close();
+                try json.writeList(datafile, ls);
+            },
+            .map => |mp| {
+                var fpathBuffer: [4096]u8 = undefined;
+                // HACK: Replace /tmp/lift-data... with proper project build path
+                const fpath = try std.fmt.bufPrint(&fpathBuffer, "/tmp/lift-data-{s}.json", .{step});
+                const datafile = try std.fs.createFileAbsolute(fpath, .{});
+                defer datafile.close();
+                try json.writeMap(datafile, mp);
+            },
+            .none => {},
+        }
+    }
 };
 
 pub const ExecutionPlan = struct {
