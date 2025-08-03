@@ -37,11 +37,19 @@ pub const Step = struct {
     data: StepData,
 
     pub fn run(self: *Step, project: *Project) !void {
-        try self.data.asJson(self.name, project.buildPath);
+        const dataPath = try self.data.asJson(self.name, project.buildPath);
         // TODO: Locate runner
         // it can be either a path-based binary(+ lift installation folder) or a remote target that might need downloading (future);
-        // TODO: Aggregate arguments to runner (self.data + dependencies outputs);
+
+        const args = [_][]const u8{
+            self.runner,
+            dataPath,
+        };
+
         std.debug.print("[{s}] Running {s}\n", .{ self.name, self.runner });
+        var process = std.process.Child.init(&args, project.arena.allocator());
+        _ = try process.spawnAndWait();
+        // TODO: Aggregate arguments to runner (self.data + dependencies outputs);
     }
 };
 
@@ -59,23 +67,27 @@ pub const StepData = union(enum) {
     map: std.StringHashMap([]u8),
     none: void,
 
-    pub fn asJson(self: *StepData, step: StepName, basePath: []const u8) !void {
+    pub fn asJson(self: *StepData, step: StepName, basePath: []const u8) ![]u8 {
         switch (self.*) {
             .list => |ls| {
                 var fpathBuffer: [4096]u8 = undefined;
-                const fpath = try std.fmt.bufPrint(&fpathBuffer, "{s}/data-{s}.json", .{ basePath, step });
+                const fpath = try std.fmt.bufPrint(&fpathBuffer, "{s}data-{s}.json", .{ basePath, step });
                 const datafile = try std.fs.createFileAbsolute(fpath, .{});
                 defer datafile.close();
                 try json.writeList(datafile, ls);
+                return fpath;
             },
             .map => |mp| {
                 var fpathBuffer: [4096]u8 = undefined;
-                const fpath = try std.fmt.bufPrint(&fpathBuffer, "{s}/data-{s}.json", .{ basePath, step });
+                const fpath = try std.fmt.bufPrint(&fpathBuffer, "{s}data-{s}.json", .{ basePath, step });
                 const datafile = try std.fs.createFileAbsolute(fpath, .{});
                 defer datafile.close();
                 try json.writeMap(datafile, mp);
+                return fpath;
             },
-            .none => {},
+            .none => {
+                return &.{};
+            },
         }
     }
 };
