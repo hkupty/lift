@@ -39,8 +39,19 @@ pub const Step = struct {
 
     pub fn run(self: *Step) !void {
         try self.data.asJson(self.name);
+        // TODO: Locate runner
+        // it can be either a path-based binary(+ lift installation folder) or a remote target that might need downloading (future);
+        // TODO: Aggregate arguments to runner (self.data + dependencies outputs);
         std.debug.print("[{s}] Running {s}\n", .{ self.name, self.runner });
     }
+};
+
+// TODO: Incorporate this in StepData so steps can take more than strings
+// TODO: Move common types out so json formatting can be aware of those polymorphic types
+pub const StepArgument = union(enum) {
+    string: []u8,
+    number: i64,
+    boolean: bool,
 };
 
 pub const StepData = union(enum) {
