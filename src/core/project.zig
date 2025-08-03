@@ -37,18 +37,60 @@ pub const Step = struct {
     data: StepData,
 
     pub fn run(self: *Step, project: *Project) !void {
-        const dataPath = try self.data.asJson(self.name, project.buildPath);
         // TODO: Locate runner
         // it can be either a path-based binary(+ lift installation folder) or a remote target that might need downloading (future);
 
-        const args = [_][]const u8{
-            self.runner,
-            dataPath,
-        };
+        var arguments = std.ArrayList([]const u8).init(project.arena.allocator());
+        defer arguments.deinit();
 
-        std.debug.print("[{s}] Running {s}\n", .{ self.name, self.runner });
-        var process = std.process.Child.init(&args, project.arena.allocator());
-        _ = try process.spawnAndWait();
+        try arguments.append(self.runner);
+        switch (self.data) {
+            .none => {},
+            else => {
+                const dataPath = try project.pathForStepFile(self.name, "data.json");
+                try self.data.asJson(dataPath);
+                try arguments.append(dataPath);
+            },
+        }
+
+        for (self.dependsOn) |dependency| {
+            const dependencyPath = try project.pathForStepFile(dependency, "output.json");
+            try arguments.append(dependencyPath);
+        }
+
+        const args = try arguments.toOwnedSlice();
+
+        std.debug.print("[{s}] Running", .{self.name});
+        for (args) |arg| {
+            std.debug.print(" {s}", .{arg});
+        }
+        std.debug.print("\n", .{});
+        var process = std.process.Child.init(args, project.arena.allocator());
+
+        process.stdout_behavior = .Pipe;
+
+        try process.spawn();
+
+        const stdoutReader = process.stdout.?.reader();
+
+        const outPath = try project.pathForStepFile(self.name, "output.json");
+        const outFile = try std.fs.createFileAbsolute(outPath, .{});
+        const writer = outFile.writer();
+
+        var read = true;
+        var buffer: [512]u8 = undefined;
+        while (read) {
+            const amountRead = try stdoutReader.read(&buffer);
+            read = amountRead > 0;
+            if (read) {
+                _ = try writer.write(buffer[0..amountRead]);
+            }
+        }
+
+        _ = try process.wait();
+
+        defer outFile.close();
+
         // TODO: Aggregate arguments to runner (self.data + dependencies outputs);
     }
 };
@@ -67,27 +109,19 @@ pub const StepData = union(enum) {
     map: std.StringHashMap([]u8),
     none: void,
 
-    pub fn asJson(self: *StepData, step: StepName, basePath: []const u8) ![]u8 {
+    pub fn asJson(self: *StepData, fpath: []u8) !void {
         switch (self.*) {
             .list => |ls| {
-                var fpathBuffer: [4096]u8 = undefined;
-                const fpath = try std.fmt.bufPrint(&fpathBuffer, "{s}data-{s}.json", .{ basePath, step });
                 const datafile = try std.fs.createFileAbsolute(fpath, .{});
                 defer datafile.close();
                 try json.writeList(datafile, ls);
-                return fpath;
             },
             .map => |mp| {
-                var fpathBuffer: [4096]u8 = undefined;
-                const fpath = try std.fmt.bufPrint(&fpathBuffer, "{s}data-{s}.json", .{ basePath, step });
                 const datafile = try std.fs.createFileAbsolute(fpath, .{});
                 defer datafile.close();
                 try json.writeMap(datafile, mp);
-                return fpath;
             },
-            .none => {
-                return &.{};
-            },
+            .none => {},
         }
     }
 };
@@ -155,6 +189,11 @@ pub const Project = struct {
     pub fn deinit(self: *Project) void {
         self.steps.deinit();
         self.arena.deinit();
+    }
+
+    fn pathForStepFile(self: *Project, stepName: StepName, file: []const u8) ![]u8 {
+        _ = self.steps.get(stepName) orelse return StepErrors.StepNotFound;
+        return try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}-{s}", .{ self.buildPath, stepName, file });
     }
 
     pub fn prepareRunForTarget(self: *Project, target: []const u8) !ExecutionPlan {
