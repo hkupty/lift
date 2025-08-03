@@ -97,10 +97,6 @@ pub const ExecutionPlan = struct {
     project: *Project,
     steps: []*Step,
 
-    pub fn deinit(self: *ExecutionPlan, allocator: std.mem.Allocator) void {
-        allocator.free(self.steps);
-    }
-
     pub fn print(self: *ExecutionPlan) void {
         std.debug.print("[", .{});
         var hasRun = false;
@@ -161,8 +157,9 @@ pub const Project = struct {
         self.arena.deinit();
     }
 
-    pub fn prepareRunForTarget(self: *Project, allocator: std.mem.Allocator, target: []const u8) !ExecutionPlan {
+    pub fn prepareRunForTarget(self: *Project, target: []const u8) !ExecutionPlan {
         const initialStep = self.steps.getPtr(target) orelse return StepErrors.StepNotFound;
+        const allocator = self.arena.allocator();
         var steps = StepsList.init(allocator);
         defer steps.deinit();
 
@@ -182,9 +179,7 @@ pub const Project = struct {
         errdefer arena.deinit();
 
         const arenaAllocator = arena.allocator();
-
         const buildPath = try std.fmt.allocPrint(arenaAllocator, "/tmp/lift/build-{s}/", .{name});
-
         const ownedName = try arenaAllocator.dupe(u8, name);
 
         std.fs.makeDirAbsolute(buildPath) catch |err| {
@@ -344,7 +339,6 @@ test "basic add functionality" {
     var project = try parseString(testing.allocator, toml);
     defer project.deinit();
 
-    var run2 = try project.prepareRunForTarget(testing.allocator, "build");
+    var run2 = try project.prepareRunForTarget("build");
     try run2.run();
-    defer run2.deinit(testing.allocator);
 }
