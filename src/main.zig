@@ -39,7 +39,7 @@ pub fn main() !void {
         \\sourceVersion = "21"
         \\
         \\[build]
-        \\runner = "echo"
+        \\runner = "cat"
         \\dependsOn = ["dependencies", "sources", "compile"]
     ;
 
