@@ -10,6 +10,7 @@ const json = @import("json.zig");
 // TODO: Tweak StepsList/ExecutionPlan to prioritize no-dependency steps first (i.e. A <- B <- C; D <- E <- C should yield [A, D, B, E, C] instead of [A, B, D, E, C].
 // TODO: Implement (separate file) merkle-tree cache based on project steps-graph (i.e. for cacheable tasks);
 // TODO: Memoize/pre-process execution plan for quicker resolution
+// TODO: Break into smaller functions and modules
 
 pub const StepErrors = error{
     /// This error is fired when a step is re-defined.
@@ -378,6 +379,30 @@ test "basic add functionality" {
     var project = try parseString(testing.allocator, toml);
     defer project.deinit();
 
-    var run2 = try project.prepareRunForTarget("build");
-    try run2.run();
+    const deps = project.steps.getPtr("dependencies").?;
+    try testing.expectEqual(0, deps.dependsOn.len);
+    try testing.expectEqualStrings("org.slf4j:slf4j-api:jar:2.0.17", deps.data.list[0]);
+
+    const sources = project.steps.getPtr("sources").?;
+    try testing.expectEqual(0, sources.dependsOn.len);
+    try testing.expectEqualStrings("./src/main/java/", sources.data.list[0]);
+
+    const compile = project.steps.getPtr("compile").?;
+    try testing.expectEqual(2, compile.dependsOn.len);
+    try testing.expectEqualStrings("21", compile.data.map.get("targetVersion").?);
+
+    const executionPlan = try project.prepareRunForTarget("build");
+
+    try testing.expectEqual(4, executionPlan.steps.len);
+    try testing.expectEqual(project.steps.getPtr("dependencies").?, executionPlan.steps[0]);
+    try testing.expectEqual(project.steps.getPtr("sources").?, executionPlan.steps[1]);
+    try testing.expectEqual(project.steps.getPtr("compile").?, executionPlan.steps[2]);
+    try testing.expectEqual(project.steps.getPtr("build").?, executionPlan.steps[3]);
+
+    var unknown: [5]u8 = undefined;
+    try testing.expectError(StepErrors.StepNotFound, project.pathForStepFile(&unknown, "data.json"));
+    const build = project.steps.getPtr("build").?;
+
+    const targetPath = try project.pathForStepFile(build.name, "output.json");
+    try testing.expectEqualStrings("/tmp/lift/build-dummy/build-output.json", targetPath);
 }
