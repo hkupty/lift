@@ -69,6 +69,9 @@ pub fn main() !void {
 
     var compilationData: CompilationData = .{};
 
+    // TODO: Parse first argument (data)
+    _ = args.skip();
+
     // We expect at least a file, but it could be more.
     // Files could contain `sources`, `classpath` or both in their json document.
     // We need to aggregate them
@@ -84,7 +87,6 @@ pub fn main() !void {
     }
 
     var classpath = std.ArrayList(u8).init(allocator);
-    defer classpath.deinit();
 
     for (compilationData.classpath, 0..) |cp, ix| {
         if (ix != 0) try classpath.append(':');
@@ -111,5 +113,15 @@ pub fn main() !void {
     for (compilationData.sources) |src| {
         try argv.append(src);
     }
+
+    const javac_argv = try argv.toOwnedSlice();
+
+    var proc = process.Child.init(javac_argv, allocator);
+
+    const term = try proc.spawnAndWait();
+
+    const exit_code = term.Exited;
+
+    process.exit(exit_code);
 }
 
