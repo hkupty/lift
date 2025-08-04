@@ -9,7 +9,9 @@ pub fn main() !void {
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) unreachable;
     }
-    const allocator = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var args = process.args();
     defer args.deinit();
@@ -24,26 +26,21 @@ pub fn main() !void {
         var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
         try target.beginArray();
 
+        const cwd = fs.cwd();
+
         while (true) {
             switch (try reader.nextAlloc(allocator, .alloc_if_needed)) {
-                .string => |fpath| {
-                    const dir = try std.fs.openDirAbsolute(fpath, .{ .iterate = true });
+                .allocated_string, .string => |fpath| {
+                    const dir = cwd.openDir(fpath, .{ .iterate = true }) catch |err| {
+                        std.log.err("Unable to open path {s}: {any}", .{ fpath, err });
+                        process.exit(1);
+                    };
                     var walker = try dir.walk(allocator);
                     defer walker.deinit();
                     while (try walker.next()) |entry| {
                         if (entry.kind == .file) {
-                            try target.write(entry.path);
-                        }
-                    }
-                },
-                .allocated_string => |fpath| {
-                    defer allocator.free(fpath);
-                    const dir = try std.fs.openDirAbsolute(fpath, .{ .iterate = true });
-                    var walker = try dir.walk(allocator);
-                    defer walker.deinit();
-                    while (try walker.next()) |entry| {
-                        if (entry.kind == .file) {
-                            try target.write(entry.path);
+                            const file = try std.fmt.allocPrint(allocator, "{s}{s}", .{ fpath, entry.path });
+                            try target.write(file);
                         }
                     }
                 },

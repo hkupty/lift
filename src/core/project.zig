@@ -21,6 +21,9 @@ pub const StepErrors = error{
 
     /// This error is fired when a target/step is requested but it doesn't exist
     StepNotFound,
+
+    /// Step run unsuccessfully.
+    StepExecutionFailed,
 };
 
 pub const StepName = []u8;
@@ -88,7 +91,11 @@ pub const Step = struct {
             }
         }
 
-        _ = try process.wait();
+        const term = try process.wait();
+
+        if (term.Exited != 0) {
+            return StepErrors.StepExecutionFailed;
+        }
 
         defer outFile.close();
 

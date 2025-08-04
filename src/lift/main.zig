@@ -25,7 +25,7 @@ pub fn main() !void {
         \\]
         \\
         \\[sources]
-        \\runner = "cat"
+        \\runner = "./zig-out/bin/sources"
         \\data = [
         \\  "./src/main/java/"
         \\]
