@@ -24,6 +24,8 @@ pub fn main() !void {
         defer reader.deinit();
 
         var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
+        try target.beginObject();
+        try target.objectField("sources");
         try target.beginArray();
 
         const cwd = fs.cwd();
@@ -51,6 +53,7 @@ pub fn main() !void {
         }
 
         try target.endArray();
+        try target.endObject();
     } else {
         process.exit(1);
     }
