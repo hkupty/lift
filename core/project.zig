@@ -282,6 +282,13 @@ pub const Project = struct {
 //     const table = try toml.parse(allocator);
 // }
 
+pub fn parseFile(allocator: std.mem.Allocator, file: std.fs.File) !*Project {
+    const content = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
+    defer allocator.free(content);
+
+    return parseString(allocator, content);
+}
+
 pub fn parseString(allocator: std.mem.Allocator, data: []const u8) !*Project {
     var table = try tomlz.parse(allocator, data);
     defer table.deinit(allocator);
