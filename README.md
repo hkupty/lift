@@ -145,9 +145,17 @@ As a small starting project, we need to start somewhere and trying to embrace ev
 
 Maven and Gradle have been running for very long and, albeit successful, each have their own shortcomings, which opens up for innovation. Independently of adoption, the motivation for Lift is so I can unleash ideas and concepts I wanted to try out and things I wanted to learn. And we all know that the best way of learning is by doing.
 
-### Why zig? Can't write good software in java?
+### Why zig? Can't we write good software in java already?
 
-There are two distinct answers for this question. First, because I wanted to. I wanted to learn zig and it feels like a good use-case for the language. Now, if that doesn't satisfy you, a more practical reason is so we don't have a bootstrap problem, where the build tool's support to new JVMs is limited by its own highest supported JVM version. Paradoxically, by writing a java build system in java - or in a jvm-based language - one is less likely to quickly support new java versions than if not using java.
+There are a few reasons why I picked zig. First of all, because I wanted to. Zig is a fantastic language and I think it is a great tool for this use case. Now, the practical reasons are:
+
+- To avoid the bootstrap problem where the build system, being written in java, needs to be updated first so a newer java version is available downstream;
+- Zig is a compiled language with great performance from cold start, whereas the JVM usually takes a while before it reaches its prime, which is not particularly good for one-shot applications;
+- Small binary & fast runtime;
+
+### Why `lift`? What's with the name?
+
+Lift was chosen because it is a quick and small word with a nice sound and a fitting meaning. One could imagine that `lift` takes you code from a lower, abstract plane and elevates it to a concrete plane, precisely what a build system should do.
 
 ### How can I help?
 
