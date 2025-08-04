@@ -1,6 +1,5 @@
 [dependencies]
 # runner = "../zig-out/bin/dependencies"
-runner = "cat"
 data = [
   "org.slf4j:slf4j-api:jar:2.0.17"
 ]
@@ -12,8 +11,7 @@ data = [
 ]
 
 [compile]
-# runner = "../zig-out/bin/compile"
-runner = "cat"
+runner = "../zig-out/bin/compile"
 dependsOn = ["dependencies", "sources"]
 
 [compile.data]
