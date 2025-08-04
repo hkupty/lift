@@ -1,0 +1,25 @@
+[dependencies]
+# runner = "../zig-out/bin/dependencies"
+runner = "cat"
+data = [
+  "org.slf4j:slf4j-api:jar:2.0.17"
+]
+
+[sources]
+runner = "../zig-out/bin/sources"
+data = [
+  "./src/main/java/"
+]
+
+[compile]
+# runner = "../zig-out/bin/compile"
+runner = "cat"
+dependsOn = ["dependencies", "sources"]
+
+[compile.data]
+targetVersion = "21"
+sourceVersion = "21"
+
+# Virtual step, just triggers the execution of the previous steps
+[build]
+dependsOn = ["dependencies", "sources", "compile"]
