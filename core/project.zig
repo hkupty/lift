@@ -44,6 +44,10 @@ pub const Step = struct {
         // TODO: Locate runner
         // it can be either a path-based binary(+ lift installation folder) or a remote target that might need downloading (future);
 
+        if (self.runner.len == 0) {
+            return;
+        }
+
         var arguments = std.ArrayList([]const u8).init(project.arena.allocator());
         defer arguments.deinit();
 
@@ -59,7 +63,19 @@ pub const Step = struct {
 
         for (self.dependsOn) |dependency| {
             const dependencyPath = try project.pathForStepFile(dependency, "output.json");
-            try arguments.append(dependencyPath);
+            var fileExists = true;
+            std.fs.accessAbsolute(dependencyPath, .{}) catch |err| {
+                switch (err) {
+                    std.fs.Dir.AccessError.FileBusy => {},
+                    std.fs.Dir.AccessError.FileNotFound => {
+                        fileExists = false;
+                    },
+                    else => return err,
+                }
+            };
+            if (fileExists) {
+                try arguments.append(dependencyPath);
+            }
         }
 
         const args = try arguments.toOwnedSlice();
