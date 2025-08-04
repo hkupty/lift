@@ -1,4 +1,5 @@
 const std = @import("std");
+const fs = std.fs;
 const lib = @import("lift_lib");
 
 // TODO: perhaps daemonize in a liftd binary + lift to communicate w/ daemon?
@@ -16,34 +17,11 @@ pub fn main() !void {
         if (deinit_status == .leak) unreachable;
     }
     const allocator = gpa.allocator();
-    const toml =
-        \\defaults = ["./base.toml", "./extra.toml"]
-        \\[dependencies]
-        \\runner = "cat"
-        \\data = [
-        \\  "org.slf4j:slf4j-api:jar:2.0.17"
-        \\]
-        \\
-        \\[sources]
-        \\runner = "./zig-out/bin/sources"
-        \\data = [
-        \\  "./src/main/java/"
-        \\]
-        \\
-        \\[compile]
-        \\runner = "cat"
-        \\dependsOn = ["dependencies", "sources"]
-        \\
-        \\[compile.data]
-        \\targetVersion = "21"
-        \\sourceVersion = "21"
-        \\
-        \\[build]
-        \\runner = "cat"
-        \\dependsOn = ["dependencies", "sources", "compile"]
-    ;
 
-    const proj = try lib.project.parseString(allocator, toml);
+    const cwd = fs.cwd();
+
+    const file = try cwd.openFile("build.toml", .{});
+    const proj = try lib.project.parseFile(allocator, file);
     defer proj.deinit();
 
     var run = try proj.prepareRunForTarget("build");
