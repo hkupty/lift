@@ -8,6 +8,21 @@ Lift is a declarative build system for java, written in zig. Currently under dev
 
 Inception/Development
 
+-[x] toml parsing;
+-[x] step dependency graph building;
+-[ ] default steps:
+  -[x] sources;
+  -[x] compile;
+  -[ ] dependencies;
+  -[ ] run;
+  -[ ] jar;
+  -[ ] sign;
+-[ ] multi-project support;
+-[ ] daemon;
+-[ ] caching:
+  -[ ] shareable merkle-tree cache;
+-[ ] deterministic output guarantees;
+
 ## 📜 Sample
 
 ```toml
