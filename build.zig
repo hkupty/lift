@@ -65,6 +65,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const dependencies = b.createModule(.{
+        .root_source_file = b.path("dependencies/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
     // for actually invoking the compiler.
@@ -112,6 +118,17 @@ pub fn build(b: *std.Build) void {
     const compile_step = b.step("compile", "Build `compile` binary");
     const install_compile = b.addInstallArtifact(compile_exe, .{});
     compile_step.dependOn(&install_compile.step);
+
+    const dependencies_exe = b.addExecutable(.{
+        .name = "dependencies",
+        .root_module = dependencies,
+    });
+
+    b.installArtifact(dependencies_exe);
+
+    const dependencies_step = b.step("dependencies", "Build `dependencies` binary");
+    const install_dependencies = b.addInstallArtifact(dependencies_exe, .{});
+    dependencies_step.dependOn(&install_dependencies.step);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish
