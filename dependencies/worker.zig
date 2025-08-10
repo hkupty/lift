@@ -23,7 +23,7 @@ const QueueError = error{
 const AtomicUsize = std.atomic.Value(usize);
 
 const WorkQueue = struct {
-    buffer: [32]*const WorkItem = undefined,
+    buffer: [8]*const WorkItem = undefined,
     readIx: AtomicUsize = AtomicUsize.init(0),
     writeIx: AtomicUsize = AtomicUsize.init(0),
 
@@ -167,6 +167,7 @@ pub const WorkerPool = struct {
     }
 
     pub fn deinit(self: *WorkerPool) void {
+        std.log.info("Deinitializing {d} workers from pool", .{self.workers.items.len});
         for (self.workers.items) |w| {
             w.deinit(self.allocator);
         }
