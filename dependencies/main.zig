@@ -1,8 +1,10 @@
 const std = @import("std");
 const worker = @import("worker.zig");
+const Pool = worker.WorkerPool;
+const Dependency = @import("spec.zig").Dependency;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
     defer {
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) unreachable;
@@ -15,16 +17,16 @@ pub fn main() !void {
     const artifact = try allocator.dupe(u8, "qwe");
     const version = try allocator.dupe(u8, "1.2");
 
-    const dep = try worker.Dependency.jar(allocator, group, artifact, version);
+    const dep = try Dependency.jar(group, artifact, version);
 
-    var w1 = try worker.Worker.init(allocator);
+    var pool = try Pool.init(allocator);
+    defer pool.deinit();
 
-    for (0..44) |_| {
+    for (0..55) |_| {
         const item = try allocator.create(worker.WorkItem);
         item.* = worker.WorkItem.Dep(dep);
-        try w1.enqueue(item);
+        pool.enqueue(item) catch |err| {
+            std.log.err("Unable to enqueue: {any}", .{err});
+        };
     }
-
-    try w1.enqueue(&worker.WorkItem.StopQueue());
-    w1.thread.join();
 }
