@@ -20,6 +20,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const shared = b.createModule(.{
+        .root_source_file = b.path("shared/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Every executable or library we compile will be based on one or more modules.
@@ -33,6 +39,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    lib_mod.addImport("lift_shared", shared);
     lib_mod.addImport("tomlz", tomlz.module("tomlz"));
 
     // We will also create a module for our other entry point, 'main.zig'.
@@ -57,6 +64,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    sources.addImport("lift_shared", shared);
 
     // The binary that lists compiles java projects
     const compile = b.createModule(.{
@@ -64,12 +72,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    compile.addImport("lift_shared", shared);
 
     const dependencies = b.createModule(.{
         .root_source_file = b.path("dependencies/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+    dependencies.addImport("lift_shared", shared);
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
