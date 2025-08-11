@@ -2,6 +2,8 @@ const std = @import("std");
 const fs = std.fs;
 const json = std.json;
 const process = std.process;
+const config = @import("config.zig");
+const shared = @import("lift_shared");
 
 const CompilationData = struct {
     sources: [][]u8 = &.{},
@@ -55,8 +57,17 @@ pub fn main() !void {
     defer args.deinit();
     _ = args.skip();
 
+    const dataPath = args.next() orelse {
+        std.log.err("Missing default data file", .{});
+        std.process.exit(1);
+    };
+    const parsed = try shared.readConfig(config.BuildStepConfig, allocator, dataPath);
+    defer parsed.deinit();
+
+    const stepConfig = parsed.value;
+
     // TODO: Take output dir from data
-    const outputDir = try allocator.dupe(u8, "/tmp/lift/build-dummy/compile/");
+    const outputDir = try allocator.dupe(u8, stepConfig.buildPath);
 
     fs.makeDirAbsolute(outputDir) catch |err| {
         switch (err) {
@@ -69,9 +80,6 @@ pub fn main() !void {
 
     var compilationData: CompilationData = .{};
 
-    // TODO: Parse first argument (data)
-    _ = args.skip();
-
     // We expect at least a file, but it could be more.
     // Files could contain `sources`, `classpath` or both in their json document.
     // We need to aggregate them
@@ -80,10 +88,13 @@ pub fn main() !void {
         defer jsonFile.close();
         var reader = json.reader(allocator, jsonFile.reader());
         defer reader.deinit();
-        const parsed = try json.parseFromTokenSource(CompilationData, allocator, &reader, .{ .ignore_unknown_fields = true, .allocate = .alloc_if_needed, .duplicate_field_behavior = .use_first });
-        defer parsed.deinit();
+        const innerParsed = json.parseFromTokenSource(CompilationData, allocator, &reader, .{ .ignore_unknown_fields = true, .allocate = .alloc_if_needed, .duplicate_field_behavior = .use_first }) catch |err| {
+            std.log.err("Skipping file {s} due to error {any}", .{ path, err });
+            continue;
+        };
+        defer innerParsed.deinit();
 
-        try compilationData.mergeWith(allocator, &parsed.value);
+        try compilationData.mergeWith(allocator, &innerParsed.value);
     }
 
     var classpath = std.ArrayList(u8).init(allocator);
@@ -103,6 +114,16 @@ pub fn main() !void {
     try argv.append(_d);
     try argv.append(outputDir);
 
+    if (stepConfig.data.sourceVersion > 0) {
+        try argv.append(try allocator.dupe(u8, "--source"));
+        try argv.append(try std.fmt.allocPrint(allocator, "{d}", .{stepConfig.data.sourceVersion}));
+    }
+
+    if (stepConfig.data.targetVersion > 0) {
+        try argv.append(try allocator.dupe(u8, "--target"));
+        try argv.append(try std.fmt.allocPrint(allocator, "{d}", .{stepConfig.data.targetVersion}));
+    }
+
     if (cp.len > 0) {
         const _cp = try allocator.dupe(u8, "-cp");
 
@@ -116,6 +137,8 @@ pub fn main() !void {
 
     const javac_argv = try argv.toOwnedSlice();
 
+    std.log.debug("Invoking javac with args {s}", .{try std.mem.join(allocator, " ", javac_argv)});
+
     var proc = process.Child.init(javac_argv, allocator);
 
     const term = try proc.spawnAndWait();
@@ -124,4 +147,3 @@ pub fn main() !void {
 
     process.exit(exit_code);
 }
-
