@@ -14,6 +14,13 @@ pub const WorkItem = union(enum) {
     pub fn Dep(dep: Dependency) WorkItem {
         return .{ .dependency = dep };
     }
+
+    pub fn deinit(self: *const WorkItem) void {
+        switch (self.*) {
+            .close => {},
+            .dependency => |dep| dep.deinit(),
+        }
+    }
 };
 
 const QueueError = error{
@@ -68,6 +75,7 @@ pub const Worker = struct {
         const allocator = self.arena.allocator();
         outer: while (running) {
             while (self.queue.next()) |item| {
+                defer item.deinit();
                 switch (item.*) {
                     .close => {
                         running = false;
