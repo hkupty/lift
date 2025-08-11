@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("config.zig");
+const shared = @import("lift_shared");
 const fs = std.fs;
 const json = std.json;
 const process = std.process;
@@ -18,40 +19,42 @@ pub fn main() !void {
     defer args.deinit();
     _ = args.skip();
 
-    if (args.next()) |path| {
-        const jsonFile = try fs.openFileAbsolute(path, .{});
-        defer jsonFile.close();
-        var reader = json.reader(allocator, jsonFile.reader());
-        defer reader.deinit();
+    const stepConfigFile = args.next() orelse {
+        std.log.err("Missing default data file", .{});
+        process.exit(1);
+    };
 
-        const data = try json.parseFromTokenSource(config.BuildStepConfig, allocator, &reader, .{ .allocate = .alloc_if_needed });
-        defer data.deinit();
+    const parsed = try shared.readConfig(config.BuildStepConfig, allocator, stepConfigFile);
+    defer parsed.deinit();
 
-        var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
-        try target.beginObject();
-        try target.objectField("sources");
-        try target.beginArray();
+    const stepConfig = parsed.value;
 
-        const cwd = fs.cwd();
+    var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
+    try target.beginObject();
+    try target.objectField("sources");
+    try target.beginArray();
 
-        for (data.value.data) |fpath| {
-            const dir = cwd.openDir(fpath, .{ .iterate = true }) catch |err| {
-                std.log.err("Unable to open path {s}: {any}", .{ fpath, err });
-                process.exit(1);
-            };
-            var walker = try dir.walk(allocator);
-            defer walker.deinit();
-            while (try walker.next()) |entry| {
-                if (entry.kind == .file) {
-                    const file = try std.fmt.allocPrint(allocator, "{s}{s}", .{ fpath, entry.path });
-                    try target.write(file);
-                }
+    const cwd = fs.cwd();
+
+    for (stepConfig.data) |fpath| {
+        const base = try allocator.dupe(u8, fpath);
+        std.log.info("Walking {s}", .{base});
+        const dir = cwd.openDir(fpath, .{ .iterate = true }) catch |err| {
+            std.log.err("Unable to open path {s}: {any}", .{ fpath, err });
+            process.exit(1);
+        };
+        var walker = try dir.walk(allocator);
+        defer walker.deinit();
+        while (try walker.next()) |entry| {
+            if (entry.kind == .file) {
+                const paths = [2][]const u8{ base, entry.path };
+                const file = try std.fs.path.join(allocator, &paths);
+                std.log.info("Adding file {s}", .{file});
+                try target.write(&file);
             }
         }
-
-        try target.endArray();
-        try target.endObject();
-    } else {
-        process.exit(1);
     }
+
+    try target.endArray();
+    try target.endObject();
 }
