@@ -3,6 +3,9 @@ const testing = std.testing;
 const tomlz = @import("tomlz");
 const json = @import("json.zig");
 
+const shared = @import("lift_shared");
+const BuildStepConfig = shared.BuildStepConfig([]u8);
+
 // TODO: Implement `listener` steps, which declare inverse dependency (they're executed when their dependency executes);
 // TODO: Define step input/output contract;
 // TODO: Implement step execution;
@@ -38,7 +41,17 @@ pub const Step = struct {
     bitPosition: StepBitPosition,
     dependsOn: []StepName,
     runner: []const u8,
-    data: StepData,
+    data: []u8,
+
+    fn getStepConfig(self: *Step, project: *Project) !BuildStepConfig {
+        const stepPath = try project.pathForStep(self.name);
+        return .{
+            .buildPath = stepPath,
+            .projectName = project.name,
+            .stepName = self.name,
+            .data = self.data,
+        };
+    }
 
     pub fn run(self: *Step, project: *Project) !void {
         // TODO: Locate runner
@@ -52,13 +65,13 @@ pub const Step = struct {
         defer arguments.deinit();
 
         try arguments.append(self.runner);
-        switch (self.data) {
-            .none => {},
-            else => {
-                const dataPath = try project.pathForStepFile(self.name, "data.json");
-                try self.data.asJson(dataPath);
-                try arguments.append(dataPath);
-            },
+        if (self.data.len > 0) {
+            const dataPath = try project.pathForStepFile(self.name, "data.json");
+            const dataFile = try std.fs.createFileAbsolute(dataPath, .{ .truncate = true });
+            const content = try self.getStepConfig(project);
+
+            try json.writeBuildStepConfig(dataFile, content);
+            try arguments.append(dataPath);
         }
 
         for (self.dependsOn) |dependency| {
@@ -119,35 +132,11 @@ pub const Step = struct {
     }
 };
 
-// TODO: Incorporate this in StepData so steps can take more than strings
 // TODO: Move common types out so json formatting can be aware of those polymorphic types
 pub const StepArgument = union(enum) {
     string: []u8,
     number: i64,
     boolean: bool,
-};
-
-pub const StepData = union(enum) {
-    list: [][]u8,
-    // TODO: replace with std.HashMapUnmanaged for better memory usage (i.e. arenas)
-    map: std.StringHashMap([]u8),
-    none: void,
-
-    pub fn asJson(self: *StepData, fpath: []u8) !void {
-        switch (self.*) {
-            .list => |ls| {
-                const datafile = try std.fs.createFileAbsolute(fpath, .{});
-                defer datafile.close();
-                try json.writeList(datafile, ls);
-            },
-            .map => |mp| {
-                const datafile = try std.fs.createFileAbsolute(fpath, .{});
-                defer datafile.close();
-                try json.writeMap(datafile, mp);
-            },
-            .none => {},
-        }
-    }
 };
 
 pub const ExecutionPlan = struct {
@@ -215,6 +204,11 @@ pub const Project = struct {
         self.arena.deinit();
     }
 
+    fn pathForStep(self: *Project, stepName: StepName) ![]u8 {
+        _ = self.steps.get(stepName) orelse return StepErrors.StepNotFound;
+        return try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}/", .{ self.buildPath, stepName });
+    }
+
     fn pathForStepFile(self: *Project, stepName: StepName, file: []const u8) ![]u8 {
         _ = self.steps.get(stepName) orelse return StepErrors.StepNotFound;
         return try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}-{s}", .{ self.buildPath, stepName, file });
@@ -248,6 +242,7 @@ pub const Project = struct {
         std.fs.makeDirAbsolute(buildPath) catch |err| {
             switch (err) {
                 std.fs.Dir.MakeError.FileNotFound => {
+                    // TODO: Make it os-independent
                     std.fs.makeDirAbsolute("/tmp/lift/") catch |perr| {
                         switch (perr) {
                             std.fs.Dir.MakeError.PathAlreadyExists => {
@@ -329,7 +324,7 @@ pub fn parseString(allocator: std.mem.Allocator, data: []const u8) !*Project {
         var step: Step = .{
             .name = name,
             .bitPosition = @as(StepBitPosition, 1) << index,
-            .data = StepData.none,
+            .data = undefined,
             .runner = runner,
             .dependsOn = &.{},
         };
@@ -345,26 +340,18 @@ pub fn parseString(allocator: std.mem.Allocator, data: []const u8) !*Project {
             step.dependsOn = dependsOn;
         }
 
-        if (tbl.getArray("data")) |dataArray| {
-            const items = dataArray.items();
-            var config = try arenaAllocator.alloc([]u8, items.len);
-            for (items, 0..) |item, ix| {
-                config[ix] = try arenaAllocator.dupe(u8, item.string);
-            }
-            step.data = .{ .list = config };
-        } else if (tbl.getTable("data")) |dataTable| {
-            var keys = dataTable.table.keyIterator();
+        if (tbl.table.get("data")) |tableData| {
+            var dataBuilder = std.ArrayList(u8).init(arenaAllocator);
+            defer dataBuilder.deinit();
+            const jsonWriter = dataBuilder.writer();
+            var jsonData = json.JsonBufferWriter.init(arenaAllocator, jsonWriter, .{ .whitespace = .minified });
+            defer jsonData.deinit();
 
-            var map = std.StringHashMap([]u8).init(arenaAllocator);
+            try json.tomlToJson(&jsonData, tableData);
 
-            while (keys.next()) |innerKey| {
-                const localKey = try arenaAllocator.dupe(u8, innerKey.*);
-                const val = dataTable.getString(innerKey.*) orelse return StepErrors.StepParameterIssue;
-                const ownedVal = try arenaAllocator.dupe(u8, val);
-                try map.put(localKey, ownedVal);
-            }
-
-            step.data = .{ .map = map };
+            step.data = try dataBuilder.toOwnedSlice();
+        } else {
+            step.data = try arenaAllocator.alloc(u8, 0);
         }
 
         try project.steps.put(name, step);
