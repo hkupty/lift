@@ -2,9 +2,13 @@ const std = @import("std");
 const testing = std.testing;
 const tomlz = @import("tomlz");
 const json = @import("json.zig");
-
+const XDG = @import("xdg.zig");
 const shared = @import("lift_shared");
 const BuildStepConfig = shared.BuildStepConfig([]u8);
+const utils = @import("utils.zig");
+
+const hash = std.crypto.hash;
+const b3 = hash.Blake3;
 
 // TODO: Implement `listener` steps, which declare inverse dependency (they're executed when their dependency executes);
 // TODO: Define step input/output contract;
@@ -47,6 +51,7 @@ pub const Step = struct {
         const stepPath = try project.pathForStep(self.name);
         return .{
             .buildPath = stepPath,
+            .cachePath = project.xdg.cache,
             .projectName = project.name,
             .stepName = self.name,
             .data = self.data,
@@ -195,23 +200,33 @@ const StepsList = struct {
 pub const Project = struct {
     // TODO: Add project name
     name: []u8,
-    buildPath: []u8,
+    xdg: XDG,
     steps: std.StringHashMap(Step),
     arena: std.heap.ArenaAllocator,
 
     pub fn deinit(self: *Project) void {
+        self.xdg.deinit();
         self.steps.deinit();
         self.arena.deinit();
     }
 
     fn pathForStep(self: *Project, stepName: StepName) ![]u8 {
         _ = self.steps.get(stepName) orelse return StepErrors.StepNotFound;
-        return try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}/", .{ self.buildPath, stepName });
+        const path = try std.fs.path.join(self.arena.allocator(), &[_][]const u8{ self.xdg.run, stepName });
+        std.fs.makeDirAbsolute(path) catch |err| {
+            switch (err) {
+                std.fs.Dir.MakeError.PathAlreadyExists => {},
+                else => return err,
+            }
+        };
+
+        return path;
     }
 
     fn pathForStepFile(self: *Project, stepName: StepName, file: []const u8) ![]u8 {
         _ = self.steps.get(stepName) orelse return StepErrors.StepNotFound;
-        return try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}-{s}", .{ self.buildPath, stepName, file });
+        const path = try self.pathForStep(stepName);
+        return try std.fs.path.join(self.arena.allocator(), &[_][]const u8{ path, file });
     }
 
     pub fn prepareRunForTarget(self: *Project, target: []const u8) !ExecutionPlan {
@@ -236,36 +251,20 @@ pub const Project = struct {
         errdefer arena.deinit();
 
         const arenaAllocator = arena.allocator();
-        const buildPath = try std.fmt.allocPrint(arenaAllocator, "/tmp/lift/build-{s}/", .{name});
+        const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+        defer allocator.free(cwd);
+        var fingerprint: [13]u8 = undefined;
+        utils.fingerprint(cwd, &fingerprint);
+
+        var xdg = XDG.init(allocator, name, &fingerprint);
+        errdefer xdg.deinit();
         const ownedName = try arenaAllocator.dupe(u8, name);
-
-        std.fs.makeDirAbsolute(buildPath) catch |err| {
-            switch (err) {
-                std.fs.Dir.MakeError.FileNotFound => {
-                    // TODO: Make it os-independent
-                    std.fs.makeDirAbsolute("/tmp/lift/") catch |perr| {
-                        switch (perr) {
-                            std.fs.Dir.MakeError.PathAlreadyExists => {
-                                // TODO: Log
-                            },
-                            else => return perr,
-                        }
-                    };
-                    try std.fs.makeDirAbsolute(buildPath);
-                },
-
-                std.fs.Dir.MakeError.PathAlreadyExists => {
-                    // TODO: Log
-                },
-                else => return err,
-            }
-        };
 
         const proj = try arenaAllocator.create(Project);
         proj.* = .{
             .arena = arena,
             .name = ownedName,
-            .buildPath = buildPath,
+            .xdg = xdg,
             .steps = std.StringHashMap(Step).init(allocator),
         };
 
@@ -385,8 +384,8 @@ test "basic add functionality" {
         \\dependsOn = ["dependencies", "sources"]
         \\
         \\[compile.data]
-        \\targetVersion = "21"
-        \\sourceVersion = "21"
+        \\targetVersion = 21
+        \\sourceVersion = 21
         \\
         \\[build]
         \\runner = "build-v0.1"
@@ -398,15 +397,15 @@ test "basic add functionality" {
 
     const deps = project.steps.getPtr("dependencies").?;
     try testing.expectEqual(0, deps.dependsOn.len);
-    try testing.expectEqualStrings("org.slf4j:slf4j-api:jar:2.0.17", deps.data.list[0]);
+    try testing.expectEqualStrings("[\"org.slf4j:slf4j-api:jar:2.0.17\"]", deps.data);
 
     const sources = project.steps.getPtr("sources").?;
     try testing.expectEqual(0, sources.dependsOn.len);
-    try testing.expectEqualStrings("./src/main/java/", sources.data.list[0]);
+    try testing.expectEqualStrings("[\"./src/main/java/\"]", sources.data);
 
     const compile = project.steps.getPtr("compile").?;
     try testing.expectEqual(2, compile.dependsOn.len);
-    try testing.expectEqualStrings("21", compile.data.map.get("targetVersion").?);
+    try testing.expectEqualStrings("{\"targetVersion\":21,\"sourceVersion\":21}", compile.data);
 
     const executionPlan = try project.prepareRunForTarget("build");
 
@@ -421,5 +420,5 @@ test "basic add functionality" {
     const build = project.steps.getPtr("build").?;
 
     const targetPath = try project.pathForStepFile(build.name, "output.json");
-    try testing.expectEqualStrings("/tmp/lift/build-dummy/build-output.json", targetPath);
+    try testing.expectEqualStrings("/run/user/1000/lift/9E4TPB8S320FP/dummy/build/output.json", targetPath);
 }
