@@ -20,6 +20,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const curl = b.dependency("curl", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const known_folders = b.dependency("known_folders", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const shared = b.createModule(.{
         .root_source_file = b.path("shared/root.zig"),
         .target = target,
@@ -41,6 +51,7 @@ pub fn build(b: *std.Build) void {
 
     lib_mod.addImport("lift_shared", shared);
     lib_mod.addImport("tomlz", tomlz.module("tomlz"));
+    lib_mod.addImport("known-folders", known_folders.module("known-folders"));
 
     // We will also create a module for our other entry point, 'main.zig'.
     const lift = b.createModule(.{
@@ -80,6 +91,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     dependencies.addImport("lift_shared", shared);
+    dependencies.addImport("curl", curl.module("curl"));
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
@@ -133,6 +145,8 @@ pub fn build(b: *std.Build) void {
         .name = "dependencies",
         .root_module = dependencies,
     });
+
+    dependencies_exe.linkLibC();
 
     b.installArtifact(dependencies_exe);
 

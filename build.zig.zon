@@ -40,6 +40,14 @@
             .url = "https://github.com/mattyhall/tomlz/archive/bb7706fb5a752526f74ce544fc15125be8e58495.tar.gz",
             .hash = "N-V-__8AAOl-AwB__MIbdDhtJBJocZz_3ZrBJJMvNoKG-l3t",
         },
+        .curl = .{
+            .url = "git+https://github.com/jiacai2050/zig-curl#dd63c870c32a5bca431d85fe8be2235072bf2648",
+            .hash = "curl-0.2.0-P4tT4ZzSAAAYaf0Gpn_d1jIPYZSPU26tKrYqizTa_gRi",
+        },
+        .known_folders = .{
+            .url = "git+https://github.com/ziglibs/known-folders.git#ab5cf5feb936fa3b72c95d3ad0c0c67791937ba1",
+            .hash = "known_folders-0.0.0-Fy-PJtTTAADUOhGKM0sxzG4eMkNQxRvx9e5dfHVyaeA3",
+        },
     },
     .paths = .{
         "build.zig",
