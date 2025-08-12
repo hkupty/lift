@@ -34,23 +34,20 @@ pub fn main() !void {
 
     const stepConfig = parsed.value;
 
-    var pool = try Pool.init(allocator);
+    var pool = try Pool.init(allocator, stepConfig.cachePath);
     defer pool.deinit();
 
     // TODO: Enqueue configured dependencies
     // TODO: Avoid processing the same dependency twice
     // TODO: Fetch POM for dependency
     // TODO: Enqueue dependencies declared in POM
+    // TODO: Acquire a jar.DownloadManager for local use here as well
 
     for (stepConfig.data) |directive| {
         defer allocator.free(directive);
-        const dependencyCoords = try spec.DependencyCoords.parse(directive);
+        const dep = try spec.Asset.parse(allocator, directive);
         const item = try allocator.create(worker.WorkItem);
-        const jar = dependencyCoords.jar(allocator) catch |err| {
-            std.log.err("Failed to get jar for dependency {s}: {any}", .{ directive, err });
-            continue;
-        };
-        item.* = worker.WorkItem.Dep(jar);
+        item.* = worker.WorkItem.Dep(dep);
         pool.enqueue(item) catch |err| {
             std.log.err("Unable to enqueue: {any}", .{err});
         };

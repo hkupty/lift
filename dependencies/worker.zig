@@ -1,24 +1,25 @@
 const std = @import("std");
 const Thread = std.Thread;
-const Dependency = @import("spec.zig").Dependency;
-const jar = @import("jar.zig");
+const spec = @import("spec.zig");
+const DownloadManager = @import("http.zig");
+const LocalRepo = @import("local_repo.zig").LocalRepo;
 
 pub const WorkItem = union(enum) {
-    dependency: Dependency,
+    dependency: spec.Asset,
     close: void,
 
     pub fn StopQueue() WorkItem {
         return WorkItem.close;
     }
 
-    pub fn Dep(dep: Dependency) WorkItem {
+    pub fn Dep(dep: spec.Asset) WorkItem {
         return .{ .dependency = dep };
     }
 
     pub fn deinit(self: *const WorkItem) void {
         switch (self.*) {
-            .close => {},
             .dependency => |dep| dep.deinit(),
+            .close => {},
         }
     }
 };
@@ -68,6 +69,9 @@ pub const Worker = struct {
     fba: std.heap.FixedBufferAllocator,
     arena: std.heap.ArenaAllocator,
     active: std.atomic.Value(bool),
+    hasFailure: std.atomic.Value(bool),
+    dm: DownloadManager,
+    lr: LocalRepo,
 
     // HACK: Ideally, we don't return any errors here, we handle everything gracefully.
     pub fn work(self: *Worker) void {
@@ -83,17 +87,45 @@ pub const Worker = struct {
                         break :outer;
                     },
                     .dependency => |dep| {
-                        const strDep = dep.string() catch |err| {
-                            std.log.err("Unable to resolve dependency: {any}", .{err});
+                        // TODO: Configure repository
+
+                        const baseUrl = dep.uri(allocator, spec.defaultMaven) catch |err| {
+                            std.log.err("Failed to resolve url: {any}", .{err});
+                            self.hasFailure.store(true, .release);
+                            continue;
+                        };
+                        defer allocator.free(baseUrl);
+
+                        const jar = dep.remoteFilename(allocator, .jar) catch |err| {
+                            std.log.err("Failed to resolve remote filename: {any}", .{err});
+                            self.hasFailure.store(true, .release);
                             continue;
                         };
 
-                        std.log.info("Resolving {s}", .{strDep});
-                        const url = jar.resolveMavenDependencyUrl(allocator, "https://repo1.maven.org/maven2", dep) catch |err| {
-                            std.log.err("Failed to resolve url: {any}", .{err});
+                        const parts = [_][]const u8{ baseUrl, jar };
+
+                        const url = std.mem.joinZ(allocator, "/", &parts) catch |err| {
+                            std.log.err("Failed to resolve full url: {any}", .{err});
+                            self.hasFailure.store(true, .release);
                             continue;
                         };
-                        std.log.info("Resolved URL to {s}", .{url});
+
+                        self.lr.prepare(allocator, dep) catch |err| {
+                            std.log.err("Failed to prepare path for dependency: {any}", .{err});
+                            self.hasFailure.store(true, .release);
+                            continue;
+                        };
+                        const path = self.lr.absolutePath(allocator, dep, .jar) catch |err| {
+                            std.log.err("Failed to get full local path: {any}", .{err});
+                            self.hasFailure.store(true, .release);
+                            continue;
+                        };
+
+                        self.dm.download(url, path) catch |err| {
+                            std.log.err("Failed to download jar: {any}", .{err});
+                            self.hasFailure.store(true, .release);
+                            continue;
+                        };
                     },
                 }
             }
@@ -112,7 +144,7 @@ pub const Worker = struct {
         try self.queue.insert(item);
     }
 
-    pub fn init(parentThreadAllocator: std.mem.Allocator) !*Worker {
+    pub fn init(parentThreadAllocator: std.mem.Allocator, lr: LocalRepo) !*Worker {
 
         // HACK: Measure and fine tune. 2MB should be OK for now
 
@@ -120,10 +152,17 @@ pub const Worker = struct {
 
         worker.queue = .{};
         worker.memBuffer = try parentThreadAllocator.alloc(u8, 2 * 1024 * 1024);
+        errdefer parentThreadAllocator.free(worker.memBuffer);
         worker.fba = std.heap.FixedBufferAllocator.init(worker.memBuffer);
         worker.active = std.atomic.Value(bool).init(true);
+        worker.hasFailure = std.atomic.Value(bool).init(false);
         worker.arena = std.heap.ArenaAllocator.init(worker.fba.allocator());
+        errdefer worker.arena.deinit();
         worker.thread = try std.Thread.spawn(.{ .allocator = worker.arena.allocator() }, Worker.work, .{worker});
+        errdefer worker.thread.join();
+
+        worker.dm = try DownloadManager.init(worker.arena.allocator());
+        worker.lr = lr;
         return worker;
     }
 
@@ -131,19 +170,21 @@ pub const Worker = struct {
         self.active.store(false, .release);
         self.thread.join();
         self.arena.deinit();
+        self.dm.deinit();
         parentThreadAllocator.free(self.memBuffer);
     }
 };
 
 pub const WorkerPool = struct {
     allocator: std.mem.Allocator,
+    localRepo: LocalRepo,
     workers: std.ArrayList(*Worker),
     lastInsert: usize,
 
-    pub fn init(allocator: std.mem.Allocator) !*WorkerPool {
+    pub fn init(allocator: std.mem.Allocator, cachePath: []const u8) !*WorkerPool {
         var pool = try allocator.create(WorkerPool);
-        errdefer allocator.free(pool);
         pool.allocator = allocator;
+        pool.localRepo = try LocalRepo.init(cachePath);
         pool.workers = std.ArrayList(*Worker).init(allocator);
         pool.lastInsert = 0;
 
@@ -166,7 +207,7 @@ pub const WorkerPool = struct {
         }
 
         if (!inserted) {
-            const next = try Worker.init(self.allocator);
+            const next = try Worker.init(self.allocator, self.localRepo);
             errdefer next.deinit(self.allocator);
             try self.workers.append(next);
             try next.enqueue(item);
@@ -176,9 +217,16 @@ pub const WorkerPool = struct {
 
     pub fn deinit(self: *WorkerPool) void {
         std.log.info("Deinitializing {d} workers from pool", .{self.workers.items.len});
+        var anyFailure = false;
         for (self.workers.items) |w| {
             w.deinit(self.allocator);
+            if (!anyFailure and w.hasFailure.load(.acquire)) {
+                anyFailure = true;
+            }
         }
         self.workers.deinit();
+        if (anyFailure) {
+            std.process.exit(2);
+        }
     }
 };
