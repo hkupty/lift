@@ -6,6 +6,8 @@ const Cursor = enum {
     group,
     artifact,
     version,
+    scope,
+    optional,
 };
 
 const Buffer = std.io.FixedBufferStream([]u8);
@@ -32,6 +34,8 @@ pub const AssetsIterator = struct {
 
     pub fn next(self: *Self, allocator: std.mem.Allocator) ?spec.Asset {
         var asset: spec.Asset = undefined;
+        asset.scope = .compile;
+        asset.optional = false;
         asset.allocator = allocator;
         var inDependency = false;
         var cursor: ?Cursor = null;
@@ -54,6 +58,10 @@ pub const AssetsIterator = struct {
                             cursor = .artifact;
                         } else if (std.mem.eql(u8, "version", name)) {
                             cursor = .version;
+                        } else if (std.mem.eql(u8, "scope", name)) {
+                            cursor = .scope;
+                        } else if (std.mem.eql(u8, "optional", name)) {
+                            cursor = .optional;
                         }
                     }
                 },
@@ -73,6 +81,27 @@ pub const AssetsIterator = struct {
                             .group => asset.group = text,
                             .artifact => asset.artifact = text,
                             .version => asset.version = text,
+                            .scope => {
+                                var scope: spec.Scope = undefined;
+
+                                if (std.mem.eql(u8, "compile", text)) {
+                                    scope = .compile;
+                                } else if (std.mem.eql(u8, "provided", text)) {
+                                    scope = .provided;
+                                } else if (std.mem.eql(u8, "runtime", text)) {
+                                    scope = .runtime;
+                                } else if (std.mem.eql(u8, "test", text)) {
+                                    scope = .test_scope;
+                                } else if (std.mem.eql(u8, "system", text)) {
+                                    scope = .system;
+                                } else if (std.mem.eql(u8, "import", text)) {
+                                    scope = .import;
+                                } else {
+                                    std.log.warn("Got unknown scope {s}", .{text});
+                                }
+                                asset.scope = scope;
+                            },
+                            .optional => asset.optional = std.mem.eql(u8, "true", text),
                         }
                     }
                 },
@@ -82,11 +111,12 @@ pub const AssetsIterator = struct {
                         inDependency = false;
                         return asset;
                     } else if (inDependency) {
-                        if (std.mem.eql(u8, "groupId", name)) {
-                            cursor = null;
-                        } else if (std.mem.eql(u8, "artifactId", name)) {
-                            cursor = null;
-                        } else if (std.mem.eql(u8, "version", name)) {
+                        if (std.mem.eql(u8, "groupId", name) or
+                            std.mem.eql(u8, "artifactId", name) or
+                            std.mem.eql(u8, "version", name) or
+                            std.mem.eql(u8, "scope", name) or
+                            std.mem.eql(u8, "optional", name))
+                        {
                             cursor = null;
                         }
                     }
