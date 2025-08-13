@@ -1,5 +1,14 @@
 const std = @import("std");
 
+pub const Scope = enum {
+    compile,
+    provided,
+    runtime,
+    test_scope,
+    system,
+    import,
+};
+
 pub const AssetType = union(enum) {
     jar: void,
     jar_sha1: void,
@@ -30,6 +39,8 @@ pub const Asset = struct {
     group: []const u8,
     artifact: []const u8,
     version: []const u8,
+    optional: bool = false,
+    scope: Scope = .compile,
     allocator: std.mem.Allocator,
 
     pub fn parse(allocator: std.mem.Allocator, directive: []const u8) !Asset {
