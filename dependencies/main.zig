@@ -10,7 +10,6 @@ const pomParser = @import("pom.zig");
 
 const LocaLRepo = @import("local_repo.zig").LocalRepo;
 
-// TODO: Request pom files for each dependency;
 // TODO: Enqueue new dependencies based on POM results recursively;
 // TODO: Handle more sources than jar;
 
@@ -59,9 +58,7 @@ pub fn main() !void {
     var downloadManager = try http.init(allocator);
     defer downloadManager.deinit();
 
-    // TODO: Fetch POM for dependency
     // TODO: Enqueue dependencies declared in POM
-    // TODO: Acquire a DownloadManager for local use here as well
 
     for (stepConfig.data) |directive| {
         const dep = try spec.Asset.parse(allocator, directive);
