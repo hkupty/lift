@@ -16,6 +16,8 @@ const LocaLRepo = @import("local_repo.zig").LocalRepo;
 // HACK: Conflict resolution is "first seen wins" - needs configuration
 // TODO: Transitive dependency exclusions
 
+const DependencyArrayMap = std.StringArrayHashMap(spec.Asset);
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
     defer {
@@ -55,7 +57,7 @@ pub fn main() !void {
     var downloadManager = try http.init(allocator);
     defer downloadManager.deinit();
 
-    var dependencies = std.StringArrayHashMap(spec.Asset).init(allocator);
+    var dependencies = DependencyArrayMap.init(allocator);
     defer dependencies.deinit();
 
     // NOTE: Dependency conflict resolution might cause changes the dependency list
@@ -112,10 +114,22 @@ pub fn main() !void {
         var xmlReader = try pomParser.parseDeps(allocator, bufferedReader);
 
         while (xmlReader.next(allocator)) |asset| {
+            switch (asset.scope) {
+                .import, .system, .test_scope => {
+                    continue;
+                },
+                else => {},
+            }
+
             const identifier = try asset.identifier(allocator);
-            defer allocator.free(identifier);
+
+            if (asset.optional) {
+                std.log.debug("Asset {s} is optional. Skipping. Add dependency to the list explicitly if necessary.", .{identifier});
+                continue;
+            }
 
             const next = try dependencies.getOrPut(identifier);
+
             if (next.found_existing) {
                 if (!std.mem.eql(u8, next.value_ptr.version, asset.version)) {
                     std.log.warn("Asset {s} already included at a different version {s} != {s}", .{
@@ -123,10 +137,10 @@ pub fn main() !void {
                         next.value_ptr.version,
                         asset.version,
                     });
-                } else {
-                    continue;
                 }
+                continue;
             } else {
+                std.log.debug("Inserting {s} in the dependency list", .{identifier});
                 next.value_ptr.* = asset;
             }
         }
