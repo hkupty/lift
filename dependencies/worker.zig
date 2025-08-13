@@ -130,18 +130,30 @@ pub const Worker = struct {
                         };
                         defer file.close();
 
-                        var reader = self.dm.download(url) catch |err| {
-                            std.log.err("Failed to download jar: {any}", .{err});
-                            self.hasFailure = true;
-                            continue;
-                        };
-                        defer reader.deinit();
+                        download: for (0..10) |attempt| {
+                            var reader = self.dm.download(url) catch |err| {
+                                switch (err) {
+                                    DownloadManager.DependencyError.RetriableFailure => {
+                                        std.log.err("Retrying {s}:{s} - {any}", .{ dep.group, dep.artifact, err });
+                                        std.time.sleep(std.math.pow(usize, 2, attempt) * 100 * std.time.ns_per_ms);
+                                        continue;
+                                    },
+                                    else => {
+                                        std.log.err("Failed to download jar: {any}", .{err});
+                                    },
+                                }
+                                self.hasFailure = true;
+                                break :download;
+                            };
+                            defer reader.deinit();
 
-                        file.writer().writeAll(reader.asSlice()) catch |err| {
-                            std.log.err("Unable to save jar to file: {any}", .{err});
-                            self.hasFailure = true;
-                            continue;
-                        };
+                            file.writer().writeAll(reader.asSlice()) catch |err| {
+                                std.log.err("Unable to save jar to file: {any}", .{err});
+                                self.hasFailure = true;
+                                continue;
+                            };
+                            break :download;
+                        }
                     },
                 }
             }
