@@ -30,6 +30,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const xml = b.dependency("xml", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const shared = b.createModule(.{
         .root_source_file = b.path("shared/root.zig"),
         .target = target,
@@ -92,6 +97,7 @@ pub fn build(b: *std.Build) void {
     });
     dependencies.addImport("lift_shared", shared);
     dependencies.addImport("curl", curl.module("curl"));
+    dependencies.addImport("xml", xml.module("xml"));
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible

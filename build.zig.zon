@@ -48,6 +48,10 @@
             .url = "git+https://github.com/ziglibs/known-folders.git#ab5cf5feb936fa3b72c95d3ad0c0c67791937ba1",
             .hash = "known_folders-0.0.0-Fy-PJtTTAADUOhGKM0sxzG4eMkNQxRvx9e5dfHVyaeA3",
         },
+        .xml = .{
+            .url = "git+https://github.com/ianprime0509/zig-xml#c12dbb48606f716773a1ddf7d9b14e07524d1436",
+            .hash = "xml-0.1.0-ZTbP35VkAgAp2cDlvsPuL7SWVZWwPg-V99LmVRSHbCtL",
+        },
     },
     .paths = .{
         "build.zig",

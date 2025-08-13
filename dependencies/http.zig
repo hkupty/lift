@@ -3,7 +3,7 @@ const spec = @import("spec.zig");
 const Dependency = spec.Dependency;
 const http = std.http;
 const curl = @import("curl");
-//
+
 // TODO: Replace libcurl with default http/tls once either zig supports TLS 1.2 better or TLS 1.2 is deprecated
 
 pub const DependencyError = error{
@@ -28,9 +28,8 @@ pub fn init(allocator: std.mem.Allocator) !DownloadManager {
     };
 }
 
-pub fn download(self: *DownloadManager, url: [:0]u8, target: []u8) !void {
+pub fn download(self: *DownloadManager, url: [:0]u8) !curl.ResizableResponseWriter {
     var writer = curl.ResizableResponseWriter.init(self.allocator);
-    defer writer.deinit();
 
     self.api.reset();
     try self.api.setUrl(url);
@@ -55,11 +54,7 @@ pub fn download(self: *DownloadManager, url: [:0]u8, target: []u8) !void {
         },
     }
 
-    std.log.info("Saving file to {s}", .{target});
-    const file = try std.fs.createFileAbsolute(target, .{ .truncate = true });
-    var fwriter = file.writer();
-
-    _ = try fwriter.write(writer.asSlice());
+    return writer;
 }
 
 pub fn deinit(self: *DownloadManager) void {

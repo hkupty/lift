@@ -73,7 +73,7 @@ pub const Worker = struct {
     dm: DownloadManager,
     lr: LocalRepo,
 
-    // HACK: Ideally, we don't return any errors here, we handle everything gracefully.
+    // NOTE: Ideally, we don't return any errors here, we handle everything gracefully.
     pub fn work(self: *Worker) void {
         var running = true;
         const allocator = self.arena.allocator();
@@ -101,6 +101,7 @@ pub const Worker = struct {
                             self.hasFailure = true;
                             continue;
                         };
+                        defer allocator.free(jar);
 
                         const parts = [_][]const u8{ baseUrl, jar };
 
@@ -109,6 +110,7 @@ pub const Worker = struct {
                             self.hasFailure = true;
                             continue;
                         };
+                        defer allocator.free(url);
 
                         self.lr.prepare(allocator, dep) catch |err| {
                             std.log.err("Failed to prepare path for dependency: {any}", .{err});
@@ -120,9 +122,24 @@ pub const Worker = struct {
                             self.hasFailure = true;
                             continue;
                         };
+                        defer allocator.free(path);
 
-                        self.dm.download(url, path) catch |err| {
+                        var file = std.fs.createFileAbsolute(path, .{ .truncate = true }) catch |err| {
+                            std.log.err("Failed open file at path {s}: {any}", .{ path, err });
+                            self.hasFailure = true;
+                            continue;
+                        };
+                        defer file.close();
+
+                        var reader = self.dm.download(url) catch |err| {
                             std.log.err("Failed to download jar: {any}", .{err});
+                            self.hasFailure = true;
+                            continue;
+                        };
+                        defer reader.deinit();
+
+                        file.writer().writeAll(reader.asSlice()) catch |err| {
+                            std.log.err("Unable to save jar to file: {any}", .{err});
                             self.hasFailure = true;
                             continue;
                         };

@@ -1,7 +1,8 @@
 [dependencies]
-# runner = "../zig-out/bin/dependencies"
+runner = "../zig-out/bin/dependencies"
 data = [
-  "org.slf4j:slf4j-api:jar:2.0.17"
+  "com.hkupty.penna:penna-core:0.9.1",
+  "org.slf4j:slf4j-api:2.0.17"
 ]
 
 [sources]
@@ -15,8 +16,11 @@ runner = "../zig-out/bin/compile"
 dependsOn = ["dependencies", "sources"]
 
 [compile.data]
-targetVersion = "21"
-sourceVersion = "21"
+targetVersion = 24
+sourceVersion = 24
+args = [
+  "--Werror"
+]
 
 # Virtual step, just triggers the execution of the previous steps
 [build]

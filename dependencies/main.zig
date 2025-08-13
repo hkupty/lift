@@ -5,6 +5,8 @@ const config = @import("config.zig");
 const worker = @import("worker.zig");
 const Pool = worker.WorkerPool;
 const spec = @import("spec.zig");
+const http = @import("http.zig");
+const pomParser = @import("pom.zig");
 
 const LocaLRepo = @import("local_repo.zig").LocalRepo;
 
@@ -54,20 +56,70 @@ pub fn main() !void {
     var depsset = std.BufSet.init(allocator);
     defer depsset.deinit();
 
+    var downloadManager = try http.init(allocator);
+    defer downloadManager.deinit();
+
     // TODO: Fetch POM for dependency
     // TODO: Enqueue dependencies declared in POM
     // TODO: Acquire a DownloadManager for local use here as well
 
     for (stepConfig.data) |directive| {
-        defer allocator.free(directive);
         const dep = try spec.Asset.parse(allocator, directive);
         errdefer dep.deinit();
+        allocator.free(directive);
+
         const identifier = dep.identifier(allocator) catch |err| {
             std.log.err("Failed to format dependency identifier: {any}", .{err});
             continue;
         };
+
         defer allocator.free(identifier);
         if (!depsset.contains(identifier)) {
+            const baseUrl = dep.uri(allocator, spec.defaultMaven) catch |err| {
+                std.log.err("Failed to resolve url: {any}", .{err});
+                failure = true;
+                continue;
+            };
+
+            defer allocator.free(baseUrl);
+            const pom = dep.remoteFilename(allocator, .pom) catch |err| {
+                std.log.err("Failed to resolve remote filename: {any}", .{err});
+                failure = true;
+                continue;
+            };
+
+            const parts = [_][]const u8{ baseUrl, pom };
+
+            const url = std.mem.joinZ(allocator, "/", &parts) catch |err| {
+                std.log.err("Failed to resolve full url: {any}", .{err});
+                failure = true;
+                continue;
+            };
+
+            const reader = downloadManager.download(url) catch |err| {
+                std.log.err("Unable to download pom: {any}", .{err});
+                failure = true;
+                continue;
+            };
+            defer reader.deinit();
+
+            var xml = std.ArrayList(u8).init(allocator);
+            defer xml.deinit();
+            xml.appendSlice(reader.asSlice()) catch |err| {
+                std.log.err("Unable to acquire pom: {any}", .{err});
+                failure = true;
+                continue;
+            };
+
+            var buffered = std.io.fixedBufferStream(xml.items);
+            const bufferedReader = buffered.reader();
+            var xmlReader = try pomParser.parseDeps(allocator, bufferedReader);
+
+            while (xmlReader.next(allocator)) |asset| {
+                std.log.debug("Has dependency: {s}:{s}:{s}", .{ asset.group, asset.artifact, asset.version });
+                asset.deinit();
+            }
+
             const exists = localrepo.exists(allocator, dep, .jar) catch |err| {
                 std.log.err("Failed to verify if jar exists, skipping: {any}", .{err});
                 continue;
