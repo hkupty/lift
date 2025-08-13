@@ -66,9 +66,7 @@ pub fn main() !void {
     for (stepConfig.data) |directive| {
         const dep = try spec.Asset.parse(allocator, directive);
         errdefer dep.deinit();
-        allocator.free(directive);
         const identifier = try dep.identifier(allocator);
-        defer allocator.free(identifier);
 
         const value = try dependencies.getOrPut(identifier);
 
