@@ -181,10 +181,10 @@ pub const WorkerPool = struct {
     workers: std.ArrayList(*Worker),
     lastInsert: usize,
 
-    pub fn init(allocator: std.mem.Allocator, cachePath: []const u8) !*WorkerPool {
+    pub fn init(allocator: std.mem.Allocator, localRepo: LocalRepo) !*WorkerPool {
         var pool = try allocator.create(WorkerPool);
         pool.allocator = allocator;
-        pool.localRepo = try LocalRepo.init(cachePath);
+        pool.localRepo = localRepo;
         pool.workers = std.ArrayList(*Worker).init(allocator);
         pool.lastInsert = 0;
 
