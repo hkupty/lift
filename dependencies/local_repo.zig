@@ -62,8 +62,8 @@ pub const LocalRepo = struct {
                 => return false,
                 else => return err,
             }
-
-            return true;
         };
+
+        return true;
     }
 };
