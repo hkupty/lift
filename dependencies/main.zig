@@ -12,6 +12,9 @@ const LocaLRepo = @import("local_repo.zig").LocalRepo;
 // TODO: Enqueue new dependencies based on POM results recursively;
 // TODO: Handle more sources than jar;
 
+// HACK: Conflict resolution is "first seen wins" - needs configuration
+// TODO: Transitive dependency exclusions
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
     defer {
@@ -38,17 +41,22 @@ pub fn main() !void {
     var localrepo = try LocaLRepo.init(stepConfig.cachePath);
     defer localrepo.deinit();
 
+    var failure = false;
+
     var pool = try Pool.init(allocator, localrepo);
-    defer pool.deinit();
+    defer {
+        const workerFailure = pool.deinit();
+        if (failure or workerFailure) {
+            std.process.exit(2);
+        }
+    }
 
     var depsset = std.BufSet.init(allocator);
     defer depsset.deinit();
 
-    // TODO: Avoid processing the same dependency twice
     // TODO: Fetch POM for dependency
     // TODO: Enqueue dependencies declared in POM
-    // TODO: Acquire a jar.DownloadManager for local use here as well
-    // TODO: Have a global flag for failures
+    // TODO: Acquire a DownloadManager for local use here as well
 
     for (stepConfig.data) |directive| {
         defer allocator.free(directive);
@@ -75,6 +83,7 @@ pub fn main() !void {
                 item.* = worker.WorkItem.Dep(dep);
                 pool.enqueue(item) catch |err| {
                     std.log.err("Unable to enqueue: {any}", .{err});
+                    failure = true;
                 };
             } else {
                 std.log.debug("Dependency {s} already present", .{identifier});

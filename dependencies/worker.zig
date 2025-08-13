@@ -69,7 +69,7 @@ pub const Worker = struct {
     fba: std.heap.FixedBufferAllocator,
     arena: std.heap.ArenaAllocator,
     active: std.atomic.Value(bool),
-    hasFailure: std.atomic.Value(bool),
+    hasFailure: bool = false,
     dm: DownloadManager,
     lr: LocalRepo,
 
@@ -91,14 +91,14 @@ pub const Worker = struct {
 
                         const baseUrl = dep.uri(allocator, spec.defaultMaven) catch |err| {
                             std.log.err("Failed to resolve url: {any}", .{err});
-                            self.hasFailure.store(true, .release);
+                            self.hasFailure = true;
                             continue;
                         };
                         defer allocator.free(baseUrl);
 
                         const jar = dep.remoteFilename(allocator, .jar) catch |err| {
                             std.log.err("Failed to resolve remote filename: {any}", .{err});
-                            self.hasFailure.store(true, .release);
+                            self.hasFailure = true;
                             continue;
                         };
 
@@ -106,24 +106,24 @@ pub const Worker = struct {
 
                         const url = std.mem.joinZ(allocator, "/", &parts) catch |err| {
                             std.log.err("Failed to resolve full url: {any}", .{err});
-                            self.hasFailure.store(true, .release);
+                            self.hasFailure = true;
                             continue;
                         };
 
                         self.lr.prepare(allocator, dep) catch |err| {
                             std.log.err("Failed to prepare path for dependency: {any}", .{err});
-                            self.hasFailure.store(true, .release);
+                            self.hasFailure = true;
                             continue;
                         };
                         const path = self.lr.absolutePath(allocator, dep, .jar) catch |err| {
                             std.log.err("Failed to get full local path: {any}", .{err});
-                            self.hasFailure.store(true, .release);
+                            self.hasFailure = true;
                             continue;
                         };
 
                         self.dm.download(url, path) catch |err| {
                             std.log.err("Failed to download jar: {any}", .{err});
-                            self.hasFailure.store(true, .release);
+                            self.hasFailure = true;
                             continue;
                         };
                     },
@@ -155,7 +155,6 @@ pub const Worker = struct {
         errdefer parentThreadAllocator.free(worker.memBuffer);
         worker.fba = std.heap.FixedBufferAllocator.init(worker.memBuffer);
         worker.active = std.atomic.Value(bool).init(true);
-        worker.hasFailure = std.atomic.Value(bool).init(false);
         worker.arena = std.heap.ArenaAllocator.init(worker.fba.allocator());
         errdefer worker.arena.deinit();
         worker.thread = try std.Thread.spawn(.{ .allocator = worker.arena.allocator() }, Worker.work, .{worker});
@@ -215,18 +214,16 @@ pub const WorkerPool = struct {
         }
     }
 
-    pub fn deinit(self: *WorkerPool) void {
+    pub fn deinit(self: *WorkerPool) bool {
         std.log.info("Deinitializing {d} workers from pool", .{self.workers.items.len});
         var anyFailure = false;
         for (self.workers.items) |w| {
             w.deinit(self.allocator);
-            if (!anyFailure and w.hasFailure.load(.acquire)) {
+            if (!anyFailure and w.hasFailure) {
                 anyFailure = true;
             }
         }
         self.workers.deinit();
-        if (anyFailure) {
-            std.process.exit(2);
-        }
+        return anyFailure;
     }
 };
