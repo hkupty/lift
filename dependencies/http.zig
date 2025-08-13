@@ -9,6 +9,7 @@ const curl = @import("curl");
 pub const DependencyError = error{
     DependencyNotFound,
     DependencyRequestError,
+    RetriableFailure,
 };
 
 const DownloadManager = @This();
@@ -41,6 +42,7 @@ pub fn download(self: *DownloadManager, url: [:0]u8) !curl.ResizableResponseWrit
         200...299 => {},
         408, 429, 500, 502, 503, 504 => {
             std.log.warn("Failed to download. Should retry", .{});
+            return DependencyError.RetriableFailure;
         },
 
         404 => {
