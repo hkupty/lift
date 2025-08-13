@@ -65,8 +65,7 @@ const WorkQueue = struct {
 pub const Worker = struct {
     queue: WorkQueue,
     thread: Thread,
-    memBuffer: []u8,
-    fba: std.heap.FixedBufferAllocator,
+    gpa: std.heap.GeneralPurposeAllocator(.{}),
     arena: std.heap.ArenaAllocator,
     active: std.atomic.Value(bool),
     hasFailure: bool = false,
@@ -162,17 +161,12 @@ pub const Worker = struct {
     }
 
     pub fn init(parentThreadAllocator: std.mem.Allocator, lr: LocalRepo) !*Worker {
-
-        // HACK: Measure and fine tune. 2MB should be OK for now
-
         var worker = try parentThreadAllocator.create(Worker);
 
         worker.queue = .{};
-        worker.memBuffer = try parentThreadAllocator.alloc(u8, 2 * 1024 * 1024);
-        errdefer parentThreadAllocator.free(worker.memBuffer);
-        worker.fba = std.heap.FixedBufferAllocator.init(worker.memBuffer);
         worker.active = std.atomic.Value(bool).init(true);
-        worker.arena = std.heap.ArenaAllocator.init(worker.fba.allocator());
+        worker.gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        worker.arena = std.heap.ArenaAllocator.init(worker.gpa.allocator());
         errdefer worker.arena.deinit();
         worker.thread = try std.Thread.spawn(.{ .allocator = worker.arena.allocator() }, Worker.work, .{worker});
         errdefer worker.thread.join();
@@ -182,12 +176,12 @@ pub const Worker = struct {
         return worker;
     }
 
-    pub fn deinit(self: *Worker, parentThreadAllocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Worker) void {
         self.active.store(false, .release);
         self.thread.join();
-        self.arena.deinit();
         self.dm.deinit();
-        parentThreadAllocator.free(self.memBuffer);
+        self.arena.deinit();
+        std.debug.assert(self.gpa.deinit() == .ok);
     }
 };
 
@@ -224,7 +218,7 @@ pub const WorkerPool = struct {
 
         if (!inserted) {
             const next = try Worker.init(self.allocator, self.localRepo);
-            errdefer next.deinit(self.allocator);
+            errdefer next.deinit();
             try self.workers.append(next);
             try next.enqueue(item);
             self.lastInsert = view.len; // same as self.workers.items.len - 1;
@@ -235,7 +229,7 @@ pub const WorkerPool = struct {
         std.log.info("Deinitializing {d} workers from pool", .{self.workers.items.len});
         var anyFailure = false;
         for (self.workers.items) |w| {
-            w.deinit(self.allocator);
+            w.deinit();
             if (!anyFailure and w.hasFailure) {
                 anyFailure = true;
             }
