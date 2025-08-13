@@ -63,6 +63,15 @@ pub const Asset = struct {
         self.allocator.free(self.version);
     }
 
+    pub fn identifier(self: *const Asset, allocator: std.mem.Allocator) ![]u8 {
+        const parts = [_][]const u8{ self.group, self.artifact };
+        return std.mem.join(
+            allocator,
+            ":",
+            &parts,
+        );
+    }
+
     pub fn remoteFilename(self: *const Asset, allocator: std.mem.Allocator, assetType: AssetType) ![]u8 {
         return std.fmt.allocPrint(allocator, "{s}-{s}.{s}", .{ self.artifact, self.version, assetType.extension() });
     }
