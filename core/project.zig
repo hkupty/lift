@@ -98,11 +98,7 @@ pub const Step = struct {
 
         const args = try arguments.toOwnedSlice();
 
-        std.debug.print("[{s}] Running", .{self.name});
-        for (args) |arg| {
-            std.debug.print(" {s}", .{arg});
-        }
-        std.debug.print("\n", .{});
+        std.log.info("-- Running {s}", .{self.name});
         var process = std.process.Child.init(args, project.arena.allocator());
 
         process.stdout_behavior = .Pipe;
@@ -148,20 +144,6 @@ pub const ExecutionPlan = struct {
     execution: u64,
     project: *Project,
     steps: []*Step,
-
-    pub fn print(self: *ExecutionPlan) void {
-        std.debug.print("[", .{});
-        var hasRun = false;
-        for (self.steps) |step| {
-            if (!hasRun) {
-                hasRun = true;
-            } else {
-                std.debug.print(", ", .{});
-            }
-            std.debug.print("{s}", .{step.name});
-        }
-        std.debug.print("]\n", .{});
-    }
 
     pub fn run(self: *ExecutionPlan) !void {
         for (self.steps) |step| {
