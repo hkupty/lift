@@ -71,9 +71,11 @@ pub fn main() !void {
         const value = try dependencies.getOrPut(identifier);
 
         if (value.found_existing) {
+            // TODO: Resolve possible version conflict
             std.log.info("Duplicated dependency declaration: {s}. Skipping", .{identifier});
             continue;
         }
+        std.log.debug("Inserting {s} in the dependency list", .{identifier});
 
         value.value_ptr.* = dep;
     }
@@ -145,7 +147,15 @@ pub fn main() !void {
         ix += 1;
     }
 
+    var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
+    try target.beginObject();
+    try target.objectField("dependencies");
+    try target.beginArray();
+
     for (dependencies.values()) |dep| {
+        const path = try localrepo.absolutePath(allocator, dep, .jar);
+        try target.write(path);
+
         const exists = localrepo.exists(allocator, dep, .jar) catch |err| {
             std.log.err("Failed to verify if jar exists, skipping: {any}", .{err});
             failure = true;
@@ -159,10 +169,7 @@ pub fn main() !void {
                 failure = true;
             };
         }
-
-        // var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
-        // try target.beginObject();
-        // try target.objectField("dependencies");
-        // try target.beginArray();
     }
+    try target.endArray();
+    try target.endObject();
 }
