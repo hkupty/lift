@@ -10,13 +10,15 @@ const json = std.json;
 const pomParser = @import("pom.zig");
 const LocaLRepo = @import("local_repo.zig").LocalRepo;
 
-// TODO: Enqueue new dependencies based on POM results recursively;
-// TODO: Handle more sources than jar;
-
 // HACK: Conflict resolution is "first seen wins" - needs configuration
 // TODO: Transitive dependency exclusions
 
 const DependencyArrayMap = std.StringArrayHashMap(spec.Asset);
+
+const Output = struct {
+    compilationClasspath: [][]u8,
+    runtimeClasspath: [][]u8,
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
@@ -103,7 +105,7 @@ pub fn main() !void {
 
         const url = try std.mem.joinZ(allocator, "/", &parts);
 
-        const reader = try downloadManager.download(url);
+        const reader = try downloadManager.download(allocator, url);
         defer reader.deinit();
 
         var xml = std.ArrayList(u8).init(allocator);
@@ -147,14 +149,17 @@ pub fn main() !void {
         ix += 1;
     }
 
-    var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
-    try target.beginObject();
-    try target.objectField("dependencies");
-    try target.beginArray();
+    // HACK: Maybe we don't need to duplicate the dependency size in the array list, but at least this avoids resizing
+    var compilation = try std.ArrayList([]u8).initCapacity(allocator, dependencies.count());
+    var runtime = try std.ArrayList([]u8).initCapacity(allocator, dependencies.count());
 
     for (dependencies.values()) |dep| {
         const path = try localrepo.absolutePath(allocator, dep, .jar);
-        try target.write(path);
+        switch (dep.scope) {
+            .import, .system, .test_scope => unreachable,
+            .runtime => runtime.appendAssumeCapacity(path),
+            .compile, .provided => compilation.appendAssumeCapacity(path),
+        }
 
         const exists = localrepo.exists(allocator, dep, .jar) catch |err| {
             std.log.err("Failed to verify if jar exists, skipping: {any}", .{err});
@@ -170,6 +175,14 @@ pub fn main() !void {
             };
         }
     }
-    try target.endArray();
-    try target.endObject();
+
+    const out: Output = .{
+        .compilationClasspath = try compilation.toOwnedSlice(),
+        .runtimeClasspath = try runtime.toOwnedSlice(),
+    };
+    try json.stringify(
+        out,
+        .{ .whitespace = .minified },
+        std.io.getStdOut().writer(),
+    );
 }
