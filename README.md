@@ -2,34 +2,64 @@
 
 > raise to a higher position or level; to elevate.
 
-Lift is a declarative build system for java, written in zig. Currently under development, very experimental.
+Lift is a declarative build system for java, written in zig. Currently under development, Very experimental.
 
 ## ⚠ Status
 
 Inception/Development
 
+### v0/Alpha/POC roadmap:
+v0.0/Alpha should enable proving the concept, ensuring most if not all the basic stuff (building, testing, packaging)
+can be done with lift/zig.
+
 - [x] toml parsing;
-- [x] step dependency graph building;
 - [ ] default steps:
   - [x] sources;
   - [x] compile;
-  - [ ] dependencies;
-  - [ ] run;
+  - [x] dependencies;
+  - [x] javarun;
+  - [ ] javaexec; (execute java code as part of the build)
   - [ ] jar;
+- [ ] referencing:
+    - [x] step dependency referencing;
+    - [ ] step-building-step;
+
+### v0.x/Beta/MVP roadmap:
+v0.1..v1.0 will be dedicated to correctness and broader use-case coverage. The closer it gets to v1.0, the broader
+the potential user base becomes. The focus of this version series is to increase usage and improve the feedback loop.
+
+- [ ] default steps:
+  - [ ] dependencies:
+    - [ ] recursive pom resolution;
+    - [ ] parameter resolution;
+    - [ ] conflict resolution;
   - [ ] sign;
+  - [ ] publish;
+- [ ] referencing:
+    - [ ] cross-project referencing;
 - [ ] multi-project support;
+
+### v1.x roadmap:
+v1.x series is where new features should be added, making lift a better choice when compared to other build systems not only by the architectural qualities but also by the feature set, which should enable a great experience with minimal effort.
+- [ ] default steps:
+  - [ ] jlink;
+  - [ ] container;
+- [ ] deterministic output guarantees;
 - [ ] daemon;
 - [ ] caching:
   - [ ] shareable merkle-tree cache;
-- [ ] deterministic output guarantees;
 
 ## 📜 Sample
 
 ```toml
-# optional lift.toml for mutli-project builds
-[[projects]]
+# optional lift.toml for mutli-project builds, proposed file layout
+[[project]]
 name = "myapp"
 path = "apps/myapp/"
+
+[[project]]
+name = "otherapp"
+path = "apps/otherapp/"
 ```
 
 ```toml
@@ -37,7 +67,7 @@ path = "apps/myapp/"
 [dependencies]
 runner = "dependencies-v0"
 data = [
-  'org.slf4j:slf4j-api:jar:2.0.17'
+  'org.slf4j:slf4j-api:2.0.17'
 ]
 
 [sources]
@@ -114,6 +144,7 @@ The `jar` target depends on the `build` target, which in turn will depend on `co
 
 Some `Steps` have `data` associated, which can be either a list or a map, and can be seen as some configuration for the step to execute correctly.
 
+This can be observed as working already in `examples/`.
 
 ### 🧩 Extensible
 
@@ -171,6 +202,7 @@ There are a few reasons why I picked zig. First of all, because I wanted to. Zig
 ### Why `lift`? What's with the name?
 
 Lift was chosen because it is a quick and small word with a nice sound and a fitting meaning. One could imagine that `lift` takes you code from a lower, abstract plane and elevates it to a concrete plane, precisely what a build system should do.
+I know "lower" and "higher" are arbitrary. If you'd think otherwise, rotate 180° :)
 
 ### How can I help?
 
