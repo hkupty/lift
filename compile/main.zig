@@ -7,39 +7,30 @@ const shared = @import("lift_shared");
 
 const CompilationData = struct {
     sources: [][]u8 = &.{},
-    classpath: [][]u8 = &.{},
+    compilationClasspath: [][]u8 = &.{},
 
     fn mergeWith(self: *CompilationData, allocator: std.mem.Allocator, other: *const CompilationData) !void {
-        var sources = std.ArrayList([]u8).init(allocator);
+        var sources = try std.ArrayList([]u8).initCapacity(
+            allocator,
+            self.sources.len + other.sources.len,
+        );
         defer sources.deinit();
-        var classpath = std.ArrayList([]u8).init(allocator);
+        var classpath = try std.ArrayList([]u8).initCapacity(
+            allocator,
+            self.compilationClasspath.len + other.compilationClasspath.len,
+        );
         defer classpath.deinit();
 
-        var sourcesToAdd = try sources.addManyAsSlice(self.sources.len + other.sources.len);
-
-        for (self.sources, 0..) |source, ix| {
-            sourcesToAdd[ix] = source;
-        }
-
-        for (other.sources, self.sources.len..) |source, ix| {
-            sourcesToAdd[ix] = source;
-        }
-
-        var classpathsToAdd = try classpath.addManyAsSlice(self.classpath.len + other.classpath.len);
-
-        for (self.classpath, 0..) |source, ix| {
-            classpathsToAdd[ix] = source;
-        }
-
-        for (other.classpath, self.classpath.len..) |source, ix| {
-            classpathsToAdd[ix] = source;
-        }
+        sources.appendSliceAssumeCapacity(self.sources);
+        sources.appendSliceAssumeCapacity(other.sources);
+        classpath.appendSliceAssumeCapacity(self.compilationClasspath);
+        classpath.appendSliceAssumeCapacity(other.compilationClasspath);
 
         const finalSources = try sources.toOwnedSlice();
         const finalClasspath = try classpath.toOwnedSlice();
 
         self.sources = finalSources;
-        self.classpath = finalClasspath;
+        self.compilationClasspath = finalClasspath;
     }
 };
 
@@ -99,7 +90,7 @@ pub fn main() !void {
 
     var classpath = std.ArrayList(u8).init(allocator);
 
-    for (compilationData.classpath, 0..) |cp, ix| {
+    for (compilationData.compilationClasspath, 0..) |cp, ix| {
         if (ix != 0) try classpath.append(':');
         try classpath.appendSlice(cp);
     }
@@ -144,6 +135,14 @@ pub fn main() !void {
     const term = try proc.spawnAndWait();
 
     const exit_code = term.Exited;
+
+    var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
+    try target.beginObject();
+    try target.objectField("runtimeClasspath");
+    try target.beginArray();
+    try target.write(outputDir);
+    try target.endArray();
+    try target.endObject();
 
     process.exit(exit_code);
 }
