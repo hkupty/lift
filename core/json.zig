@@ -18,6 +18,8 @@ pub fn writeBuildStepConfig(file: fs.File, bsc: BuildStepConfig) !void {
     try stream.write(bsc.buildPath);
     try stream.objectField("cachePath");
     try stream.write(bsc.cachePath);
+    try stream.objectField("outputPath");
+    try stream.write(bsc.outputPath);
     try stream.objectField("projectName");
     try stream.write(bsc.projectName);
     try stream.objectField("stepName");

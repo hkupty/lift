@@ -69,10 +69,16 @@ pub fn main() !void {
 
     var compilationData: CompilationData = .{};
 
+    var buildStepForward = std.ArrayList([]u8).init(allocator);
+
     // We expect at least a file, but it could be more.
     // Files could contain `sources`, `classpath` or both in their json document.
     // We need to aggregate them
     while (args.next()) |path| {
+        if (stepConfig.data.buildStep) {
+            const ownedPath = try allocator.dupe(u8, path);
+            try buildStepForward.append(ownedPath);
+        }
         const jsonFile = try fs.openFileAbsolute(path, .{});
         defer jsonFile.close();
         var reader = json.reader(allocator, jsonFile.reader());
@@ -111,6 +117,11 @@ pub fn main() !void {
     }
 
     try argv.append(stepConfig.data.mainClass);
+
+    if (stepConfig.data.buildStep) {
+        const forwardArgs = try buildStepForward.toOwnedSlice();
+        try argv.appendSlice(forwardArgs);
+    }
 
     const java_argv = try argv.toOwnedSlice();
 

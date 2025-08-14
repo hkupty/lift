@@ -49,9 +49,13 @@ pub const Step = struct {
 
     fn getStepConfig(self: *Step, project: *Project) !BuildStepConfig {
         const stepPath = try project.pathForStep(self.name);
+        const outPath = try project.pathForStepFile(self.name, "output.json");
+        const file = try std.fs.createFileAbsolute(outPath, .{});
+        file.close();
         return .{
             .buildPath = stepPath,
             .cachePath = project.xdg.cache,
+            .outputPath = outPath,
             .projectName = project.name,
             .stepName = self.name,
             .data = self.data,
@@ -101,33 +105,13 @@ pub const Step = struct {
         std.log.info("-- Running {s}", .{self.name});
         var process = std.process.Child.init(args, project.arena.allocator());
 
-        process.stdout_behavior = .Pipe;
-
         try process.spawn();
-
-        const stdoutReader = process.stdout.?.reader();
-
-        const outPath = try project.pathForStepFile(self.name, "output.json");
-        const outFile = try std.fs.createFileAbsolute(outPath, .{});
-        const writer = outFile.writer();
-
-        var read = true;
-        var buffer: [512]u8 = undefined;
-        while (read) {
-            const amountRead = try stdoutReader.read(&buffer);
-            read = amountRead > 0;
-            if (read) {
-                _ = try writer.write(buffer[0..amountRead]);
-            }
-        }
 
         const term = try process.wait();
 
         if (term.Exited != 0) {
             return StepErrors.StepExecutionFailed;
         }
-
-        defer outFile.close();
 
         // TODO: Aggregate arguments to runner (self.data + dependencies outputs);
     }

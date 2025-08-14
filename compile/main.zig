@@ -136,7 +136,10 @@ pub fn main() !void {
 
     const exit_code = term.Exited;
 
-    var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
+    const outputFile = try std.fs.openFileAbsolute(stepConfig.outputPath, .{ .mode = .read_write });
+    defer outputFile.close();
+
+    var target = json.writeStream(outputFile.writer(), .{ .whitespace = .minified });
     try target.beginObject();
     try target.objectField("runtimeClasspath");
     try target.beginArray();

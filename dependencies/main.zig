@@ -176,6 +176,9 @@ pub fn main() !void {
         }
     }
 
+    const outputFile = try std.fs.openFileAbsolute(stepConfig.outputPath, .{ .mode = .read_write });
+    defer outputFile.close();
+
     const out: Output = .{
         .compilationClasspath = try compilation.toOwnedSlice(),
         .runtimeClasspath = try runtime.toOwnedSlice(),
@@ -183,6 +186,6 @@ pub fn main() !void {
     try json.stringify(
         out,
         .{ .whitespace = .minified },
-        std.io.getStdOut().writer(),
+        outputFile.writer(),
     );
 }

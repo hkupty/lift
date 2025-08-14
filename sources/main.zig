@@ -28,8 +28,10 @@ pub fn main() !void {
     defer parsed.deinit();
 
     const stepConfig = parsed.value;
+    const outputFile = try std.fs.openFileAbsolute(stepConfig.outputPath, .{ .mode = .read_write });
+    defer outputFile.close();
 
-    var target = json.writeStream(std.io.getStdOut().writer(), .{ .whitespace = .minified });
+    var target = json.writeStream(outputFile.writer(), .{ .whitespace = .minified });
     try target.beginObject();
     try target.objectField("sources");
     try target.beginArray();
