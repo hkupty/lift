@@ -5,6 +5,7 @@ const http = std.http;
 const curl = @import("curl");
 
 // TODO: Replace libcurl with default http/tls once either zig supports TLS 1.2 better or TLS 1.2 is deprecated
+// HACK: Alternatively, use tls.zig and write a custom HTTP client layer on top of it
 
 pub const DependencyError = error{
     DependencyNotFound,
@@ -14,7 +15,6 @@ pub const DependencyError = error{
 
 const DownloadManager = @This();
 
-allocator: std.mem.Allocator,
 cert: std.ArrayList(u8),
 api: curl.Easy,
 
@@ -23,14 +23,13 @@ pub fn init(allocator: std.mem.Allocator) !DownloadManager {
     const easy = try curl.Easy.init(.{ .ca_bundle = ca, .default_user_agent = "lift/0.0" });
 
     return .{
-        .allocator = allocator,
         .cert = ca,
         .api = easy,
     };
 }
 
-pub fn download(self: *DownloadManager, url: [:0]u8) !curl.ResizableResponseWriter {
-    var writer = curl.ResizableResponseWriter.init(self.allocator);
+pub fn download(self: *DownloadManager, allocator: std.mem.Allocator, url: [:0]u8) !curl.ResizableResponseWriter {
+    var writer = curl.ResizableResponseWriter.init(allocator);
 
     self.api.reset();
     try self.api.setUrl(url);

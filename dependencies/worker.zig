@@ -4,6 +4,8 @@ const spec = @import("spec.zig");
 const DownloadManager = @import("http.zig");
 const LocalRepo = @import("local_repo.zig").LocalRepo;
 
+// TODO: Reduce duplicated allocations by passing {url, path} instead of full dependency
+
 pub const WorkItem = union(enum) {
     dependency: spec.Asset,
     close: void,
@@ -66,7 +68,7 @@ pub const Worker = struct {
     queue: WorkQueue,
     thread: Thread,
     gpa: std.heap.GeneralPurposeAllocator(.{}),
-    arena: std.heap.ArenaAllocator,
+    baseAllocator: std.mem.Allocator,
     active: std.atomic.Value(bool),
     hasFailure: bool = false,
     dm: DownloadManager,
@@ -75,10 +77,13 @@ pub const Worker = struct {
     // NOTE: Ideally, we don't return any errors here, we handle everything gracefully.
     pub fn work(self: *Worker) void {
         var running = true;
-        const allocator = self.arena.allocator();
+        var arena = std.heap.ArenaAllocator.init(self.baseAllocator);
+        defer arena.deinit();
+        const allocator = arena.allocator();
         outer: while (running) {
             while (self.queue.next()) |item| {
                 defer item.deinit();
+                defer _ = arena.reset(.retain_capacity);
                 switch (item.*) {
                     .close => {
                         running = false;
@@ -93,14 +98,12 @@ pub const Worker = struct {
                             self.hasFailure = true;
                             continue;
                         };
-                        defer allocator.free(baseUrl);
 
                         const jar = dep.remoteFilename(allocator, .jar) catch |err| {
                             std.log.err("Failed to resolve remote filename: {any}", .{err});
                             self.hasFailure = true;
                             continue;
                         };
-                        defer allocator.free(jar);
 
                         const parts = [_][]const u8{ baseUrl, jar };
 
@@ -109,7 +112,6 @@ pub const Worker = struct {
                             self.hasFailure = true;
                             continue;
                         };
-                        defer allocator.free(url);
 
                         self.lr.prepare(allocator, dep) catch |err| {
                             std.log.err("Failed to prepare path for dependency: {any}", .{err});
@@ -121,7 +123,6 @@ pub const Worker = struct {
                             self.hasFailure = true;
                             continue;
                         };
-                        defer allocator.free(path);
 
                         var file = std.fs.createFileAbsolute(path, .{ .truncate = true }) catch |err| {
                             std.log.err("Failed open file at path {s}: {any}", .{ path, err });
@@ -131,7 +132,7 @@ pub const Worker = struct {
                         defer file.close();
 
                         download: for (0..10) |attempt| {
-                            var reader = self.dm.download(url) catch |err| {
+                            var reader = self.dm.download(allocator, url) catch |err| {
                                 switch (err) {
                                     DownloadManager.DependencyError.RetriableFailure => {
                                         std.log.err("Retrying {s}:{s} - {any}", .{ dep.group, dep.artifact, err });
@@ -178,12 +179,11 @@ pub const Worker = struct {
         worker.queue = .{};
         worker.active = std.atomic.Value(bool).init(true);
         worker.gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        worker.arena = std.heap.ArenaAllocator.init(worker.gpa.allocator());
-        errdefer worker.arena.deinit();
-        worker.thread = try std.Thread.spawn(.{ .allocator = worker.arena.allocator() }, Worker.work, .{worker});
+        worker.baseAllocator = worker.gpa.allocator();
+        worker.thread = try std.Thread.spawn(.{ .allocator = worker.baseAllocator }, Worker.work, .{worker});
         errdefer worker.thread.join();
 
-        worker.dm = try DownloadManager.init(worker.arena.allocator());
+        worker.dm = try DownloadManager.init(worker.baseAllocator);
         worker.lr = lr;
         return worker;
     }
@@ -192,7 +192,6 @@ pub const Worker = struct {
         self.active.store(false, .release);
         self.thread.join();
         self.dm.deinit();
-        self.arena.deinit();
         std.debug.assert(self.gpa.deinit() == .ok);
     }
 };
