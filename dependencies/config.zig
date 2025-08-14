@@ -1,6 +1,8 @@
 const std = @import("std");
 const shared = @import("lift_shared");
 
+// TODO: Enable more complex configuration
+
 // pub const RepoConfiguration = struct {
 //     type: []u8,
 //     url: []u8,

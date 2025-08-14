@@ -2,6 +2,11 @@ const std = @import("std");
 const xml = @import("xml");
 const spec = @import("spec.zig");
 
+// TODO: Solve versions when they're given as parameters
+// TODO: Solve versions when they're bundled
+// NOTE: Maybe we need a two-step processing: XML -> POM -> []spec.Asset
+// NOTE: POMs might need to be resolved recursively (as a file might refer a parent file)
+
 const Cursor = enum {
     group,
     artifact,
