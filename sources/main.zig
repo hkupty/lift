@@ -5,6 +5,9 @@ const fs = std.fs;
 const json = std.json;
 const process = std.process;
 
+// TODO: Expand config, enavble setting symlink follow behavior
+// NOTE: Currently symlinks are ignored
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -28,13 +31,11 @@ pub fn main() !void {
     defer parsed.deinit();
 
     const stepConfig = parsed.value;
-    const outputFile = try std.fs.openFileAbsolute(stepConfig.outputPath, .{ .mode = .read_write });
-    defer outputFile.close();
-
-    var target = json.writeStream(outputFile.writer(), .{ .whitespace = .minified });
-    try target.beginObject();
-    try target.objectField("sources");
-    try target.beginArray();
+    var output = try shared.getOutputFile(config.StepData, stepConfig);
+    defer output.deinit();
+    try output.writer.beginObject();
+    try output.writer.objectField("sources");
+    try output.writer.beginArray();
 
     const cwd = fs.cwd();
 
@@ -52,11 +53,11 @@ pub fn main() !void {
                 const paths = [2][]const u8{ base, entry.path };
                 const file = try std.fs.path.join(allocator, &paths);
                 std.log.info("Adding file {s}", .{file});
-                try target.write(&file);
+                try output.writer.write(&file);
             }
         }
     }
 
-    try target.endArray();
-    try target.endObject();
+    try output.writer.endArray();
+    try output.closeJson();
 }
