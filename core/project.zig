@@ -6,6 +6,7 @@ const XDG = @import("xdg.zig");
 const shared = @import("lift_shared");
 const BuildStepConfig = shared.BuildStepConfig([]u8);
 const utils = @import("utils.zig");
+const inspect = @import("inspect.zig");
 
 const hash = std.crypto.hash;
 const b3 = hash.Blake3;
