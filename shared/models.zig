@@ -1,10 +1,10 @@
 pub fn BuildStepConfig(comptime T: type) type {
     return struct {
-        buildPath: []u8,
-        cachePath: []u8,
-        outputPath: []u8,
-        projectName: []u8,
-        stepName: []u8,
+        buildPath: []const u8,
+        cachePath: []const u8,
+        outputPath: []const u8,
+        projectName: []const u8,
+        stepName: []const u8,
         data: T,
     };
 }

@@ -34,6 +34,10 @@ pub fn init(allocator: std.mem.Allocator, name: []const u8, fingerprint: []const
     };
 }
 
+pub fn runFor(self: *XDG, stepName: []const u8) ![]const u8 {
+    return std.fs.path.join(self.allocator, &[_][]const u8{ self.run, stepName });
+}
+
 pub fn deinit(self: *XDG) void {
     self.allocator.free(self.cache);
     self.allocator.free(self.run);

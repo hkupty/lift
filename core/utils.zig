@@ -26,7 +26,7 @@ test "encoding" {
     try testing.expectEqualStrings("FZZZZZZZZZZZZ", &buf);
 }
 
-pub fn fingerprint(data: []u8, out: []u8) void {
+pub fn fingerprint(data: []const u8, out: []u8) void {
     std.debug.assert(out.len == 13);
     var buf: [8]u8 = undefined;
     Blake3.hash(data, &buf, .{});

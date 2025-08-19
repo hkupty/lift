@@ -20,11 +20,8 @@ pub fn main() !void {
 
     const cwd = fs.cwd();
 
-    const file = try cwd.openFile("build.toml", .{});
-    const proj = try lib.project.parseFile(allocator, file);
+    var proj = try lib.project.init(allocator, cwd);
     defer proj.deinit();
 
-    var run = try proj.prepareRunForTarget("build");
-
-    try run.run();
+    try proj.run("build");
 }
