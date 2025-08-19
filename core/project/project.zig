@@ -25,7 +25,7 @@ const Runner = struct {
     allocator: std.mem.Allocator,
     args: ArgsList,
     plan: StepsList,
-    mapper: StepMapper,
+    mapper: *StepMapper,
 
     pub fn init(allocator: std.mem.Allocator, project: *Project, target: []const u8) !Runner {
         const initialStep = project.steps.getPtr(target) orelse return models.StepErrors.StepNotFound;
@@ -34,7 +34,7 @@ const Runner = struct {
 
         return .{
             .plan = plan,
-            .mapper = project.stepMapper,
+            .mapper = &project.stepMapper,
             .args = ArgsList.init(allocator),
             .allocator = allocator,
         };
@@ -73,35 +73,30 @@ const Runner = struct {
 };
 
 pub fn init(allocator: std.mem.Allocator, dir: std.fs.Dir) !Project {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    errdefer arena.deinit();
-    const arenaAllocator = arena.allocator();
+    const arena = std.heap.ArenaAllocator.init(allocator);
 
     const path = try dir.realpathAlloc(allocator, ".");
     defer allocator.free(path);
-    const name = try arenaAllocator.dupe(u8, std.fs.path.basename(path));
-
-    var mapper = StepMapper.init(allocator, name, path);
+    const name = try allocator.dupe(u8, std.fs.path.basename(path));
 
     var project: Project = .{
         .arena = arena,
         .name = name,
-        .stepMapper = mapper,
+        .stepMapper = StepMapper.init(allocator, name, path),
         .dir = dir,
-        .steps = std.StringHashMap(Step).init(arenaAllocator),
+        .steps = std.StringHashMap(Step).init(allocator),
     };
 
     try project.parseBuildFile();
-
-    try mapper.cache.ensureTotalCapacity(project.steps.count());
 
     return project;
 }
 
 pub fn deinit(self: *Project) void {
-    self.dir.close();
+    var allocator = self.arena.child_allocator;
     self.stepMapper.deinit();
     self.steps.deinit();
+    allocator.free(self.name);
     self.arena.deinit();
 }
 
@@ -113,6 +108,7 @@ pub fn run(self: *Project, target: []const u8) !void {
 
 fn parseBuildFile(self: *Project) !void {
     const file = try self.dir.openFile("build.toml", .{});
+    defer file.close();
     const allocator = self.arena.allocator();
     const content = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
     defer allocator.free(content);

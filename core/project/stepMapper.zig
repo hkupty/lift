@@ -5,6 +5,7 @@ const json = @import("json.zig");
 
 const utils = @import("../utils.zig");
 const XDG = @import("../os/xdg.zig");
+
 const Cache = std.StringHashMap(Paths);
 
 pub const Paths = struct {
@@ -17,6 +18,7 @@ pub const Paths = struct {
 cache: Cache,
 projectName: []const u8,
 xdg: XDG,
+allocator: std.mem.Allocator,
 
 /// Creates the Execution cache.
 const StepMapper = @This();
@@ -31,11 +33,18 @@ pub fn init(allocator: std.mem.Allocator, projectName: []const u8, projectPath: 
         .cache = Cache.init(allocator),
         .projectName = projectName,
         .xdg = xdg,
+        .allocator = allocator,
     };
 }
 
 pub fn deinit(self: *StepMapper) void {
     self.xdg.deinit();
+    var iter = self.cache.valueIterator();
+    while (iter.next()) |item| {
+        self.allocator.free(item.data);
+        self.allocator.free(item.run);
+        self.allocator.free(item.output);
+    }
     self.cache.deinit();
 }
 
@@ -85,8 +94,12 @@ pub fn build(self: *StepMapper, target: *Step) !models.BuildStepConfig {
 pub fn datapath(self: *StepMapper, target: *Step) ![]const u8 {
     const path = (try self.paths(target)).data;
     const file = try std.fs.createFileAbsolute(path, .{});
+    defer file.close();
     const config = try self.build(target);
     try json.writeBuildStepConfig(file, config);
+    const out = try self.outpath(target.name);
+    const fout = try std.fs.createFileAbsolute(out, .{});
+    defer fout.close();
 
     return path;
 }
