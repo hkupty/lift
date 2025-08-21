@@ -102,6 +102,20 @@ pub const Asset = struct {
         return std.mem.join(allocator, "/", &parts);
     }
 
+    pub fn fullRemotePathZ(self: *const Asset, allocator: std.mem.Allocator, assetType: AssetType, host: []const u8) ![:0]u8 {
+        const groupParts = try std.mem.replaceOwned(u8, allocator, self.group, ".", "/");
+        defer allocator.free(groupParts);
+        const parts = [_][]const u8{
+            host,
+            groupParts,
+            self.artifact,
+            self.version,
+            try self.remoteFilename(allocator, assetType),
+        };
+
+        return std.mem.joinZ(allocator, "/", &parts);
+    }
+
     pub fn uri(self: *const Asset, allocator: std.mem.Allocator, repository: Repository) ![]u8 {
         switch (repository) {
             .maven => |url| return self.remotePath(allocator, url),

@@ -1,0 +1,7 @@
+.{
+    .descr = "BOM file, gradle publishing.",
+    .parent = null,
+    .dependencies = 0,
+    .dependencyManagement = 18,
+    .properties = 0,
+}

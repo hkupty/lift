@@ -1,0 +1,7 @@
+.{
+    .descr = "Has <dependencies> in <build>",
+    .parent = null,
+    .dependencies = 2,
+    .properties = 8,
+    .dependencyManagement = 0,
+}

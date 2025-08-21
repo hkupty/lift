@@ -7,7 +7,7 @@ const Pool = worker.WorkerPool;
 const spec = @import("spec.zig");
 const http = @import("http.zig");
 const json = std.json;
-const pomParser = @import("pom.zig");
+const PomHive = @import("pom/memory.zig").PomHive;
 const LocaLRepo = @import("local_repo.zig").LocalRepo;
 
 // HACK: Conflict resolution is "first seen wins" - needs configuration
@@ -56,15 +56,14 @@ pub fn main() !void {
         }
     }
 
-    var downloadManager = try http.init(allocator);
-    defer downloadManager.deinit();
+    var pomHive: PomHive = undefined;
+    try pomHive.init(gpa.allocator());
 
     var dependencies = DependencyArrayMap.init(allocator);
     defer dependencies.deinit();
 
     // NOTE: Dependency conflict resolution might cause changes the dependency list
 
-    // TODO: Enqueue dependencies declared in POM
     for (stepConfig.data) |directive| {
         const dep = try spec.Asset.parse(allocator, directive);
         errdefer dep.deinit();
@@ -88,36 +87,12 @@ pub fn main() !void {
         if (values.len <= ix) break;
         const dep = values[ix];
 
-        const baseUrl = dep.uri(allocator, spec.defaultMaven) catch |err| {
-            std.log.err("Failed to resolve url: {any}", .{err});
-            failure = true;
-            continue;
-        };
+        std.log.debug("Requesting {s}:{s}", .{ dep.group, dep.artifact });
+        var iter = try pomHive.dependenciesForAsset(&dep);
 
-        defer allocator.free(baseUrl);
-        const pom = dep.remoteFilename(allocator, .pom) catch |err| {
-            std.log.err("Failed to resolve remote filename: {any}", .{err});
-            failure = true;
-            continue;
-        };
-
-        const parts = [_][]const u8{ baseUrl, pom };
-
-        const url = try std.mem.joinZ(allocator, "/", &parts);
-
-        const reader = try downloadManager.download(allocator, url);
-        defer reader.deinit();
-
-        var xml = std.ArrayList(u8).init(allocator);
-        defer xml.deinit();
-        try xml.appendSlice(reader.asSlice());
-        var buffered = std.io.fixedBufferStream(xml.items);
-        const bufferedReader = buffered.reader();
-        var xmlReader = try pomParser.parseDeps(allocator, bufferedReader);
-
-        while (xmlReader.next(allocator)) |asset| {
+        while (iter.next()) |asset| {
             switch (asset.scope) {
-                .import, .system, .test_scope => {
+                .system, .test_scope => {
                     continue;
                 },
                 else => {},
@@ -133,6 +108,7 @@ pub fn main() !void {
             const next = try dependencies.getOrPut(identifier);
 
             if (next.found_existing) {
+                std.log.debug("{s} is already in the dependency list", .{identifier});
                 if (!std.mem.eql(u8, next.value_ptr.version, asset.version)) {
                     std.log.warn("Asset {s} already included at a different version {s} != {s}", .{
                         identifier,
@@ -142,7 +118,7 @@ pub fn main() !void {
                 }
                 continue;
             } else {
-                std.log.debug("Inserting {s} in the dependency list", .{identifier});
+                std.log.debug("[{s}:{s}:{s}] Inserting {s}", .{ dep.group, dep.artifact, dep.version, identifier });
                 next.value_ptr.* = asset;
             }
         }
@@ -188,4 +164,8 @@ pub fn main() !void {
         .{ .whitespace = .minified },
         outputFile.writer(),
     );
+}
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
 }
