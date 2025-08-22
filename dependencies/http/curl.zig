@@ -1,7 +1,4 @@
 const std = @import("std");
-const spec = @import("spec.zig");
-const Dependency = spec.Dependency;
-const http = std.http;
 const curl = @import("curl");
 
 // TODO: Replace libcurl with default http/tls once either zig supports TLS 1.2 better or TLS 1.2 is deprecated
@@ -13,12 +10,12 @@ pub const DependencyError = error{
     RetriableFailure,
 };
 
-const DownloadManager = @This();
+const LibcurlHttpImpl = @This();
 
 cert: std.ArrayList(u8),
 api: curl.Easy,
 
-pub fn init(allocator: std.mem.Allocator) !DownloadManager {
+pub fn init(allocator: std.mem.Allocator) !LibcurlHttpImpl {
     const ca = try curl.allocCABundle(allocator);
     const easy = try curl.Easy.init(.{ .ca_bundle = ca, .default_user_agent = "lift/0.0" });
 
@@ -28,8 +25,9 @@ pub fn init(allocator: std.mem.Allocator) !DownloadManager {
     };
 }
 
-pub fn download(self: *DownloadManager, allocator: std.mem.Allocator, url: [:0]u8) !curl.ResizableResponseWriter {
+pub fn download(self: *const LibcurlHttpImpl, allocator: std.mem.Allocator, url: [:0]u8) ![]const u8 {
     var writer = curl.ResizableResponseWriter.init(allocator);
+    defer writer.deinit();
 
     self.api.reset();
     try self.api.setUrl(url);
@@ -55,10 +53,10 @@ pub fn download(self: *DownloadManager, allocator: std.mem.Allocator, url: [:0]u
         },
     }
 
-    return writer;
+    return writer.asSlice();
 }
 
-pub fn deinit(self: *DownloadManager) void {
+pub fn deinit(self: *const LibcurlHttpImpl) void {
     self.api.deinit();
     self.cert.deinit();
 }
