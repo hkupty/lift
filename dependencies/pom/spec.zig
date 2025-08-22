@@ -43,8 +43,8 @@ pub const PomKey = struct {
 };
 
 pub const PomCache = std.HashMap(PomKey, Pom, PomKey.Context, 80);
-pub const Dependencies = std.ArrayList(spec.Asset);
-pub const PropertiesMap = std.StringHashMap([]const u8);
+pub const Dependencies = std.ArrayListUnmanaged(spec.Asset);
+pub const PropertiesMap = std.StringArrayHashMapUnmanaged([]const u8);
 
 pub const Pom = struct {
     properties: PropertiesMap,
@@ -52,10 +52,10 @@ pub const Pom = struct {
     dependencies: Dependencies,
     dependencyManagement: Dependencies,
 
-    pub fn deinit(self: *@This()) void {
-        self.dependencies.deinit();
-        self.dependencyManagement.deinit();
-        self.properties.deinit();
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        self.dependencies.deinit(allocator);
+        self.dependencyManagement.deinit(allocator);
+        self.properties.deinit(allocator);
     }
 };
 

@@ -1,7 +1,7 @@
 const std = @import("std");
 const Thread = std.Thread;
 const spec = @import("spec.zig");
-const DownloadManager = @import("http.zig");
+const DownloadManager = @import("http/curl.zig");
 const LocalRepo = @import("local_repo.zig").LocalRepo;
 
 // TODO: Reduce duplicated allocations by passing {url, path} instead of full dependency
@@ -132,7 +132,7 @@ pub const Worker = struct {
                         defer file.close();
 
                         download: for (0..10) |attempt| {
-                            var reader = self.dm.download(allocator, url) catch |err| {
+                            const downloadedFile = self.dm.download(allocator, url) catch |err| {
                                 switch (err) {
                                     DownloadManager.DependencyError.RetriableFailure => {
                                         std.log.err("Retrying {s}:{s} - {any}", .{ dep.group, dep.artifact, err });
@@ -146,9 +146,8 @@ pub const Worker = struct {
                                 self.hasFailure = true;
                                 break :download;
                             };
-                            defer reader.deinit();
 
-                            file.writer().writeAll(reader.asSlice()) catch |err| {
+                            file.writer().writeAll(downloadedFile) catch |err| {
                                 std.log.err("Unable to save jar to file: {any}", .{err});
                                 self.hasFailure = true;
                                 continue;

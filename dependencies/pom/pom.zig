@@ -50,25 +50,23 @@ const Reader = xml.GenericReader(Document.Error);
 pub const PomView = struct {
     lines: []const u8,
     identifier: []const u8 = undefined,
-    arena: std.heap.ArenaAllocator,
     recovery: bool = false,
 
-    pub fn parse(self: *PomView) !spec.Pom {
-        const allocator = self.arena.allocator();
+    pub fn parse(self: *PomView, allocator: std.mem.Allocator) !spec.Pom {
         var buffered = std.io.fixedBufferStream(self.lines);
         var doc = xml.streamingDocument(allocator, buffered.reader());
         defer doc.deinit();
         var dreader = doc.reader(allocator, .{});
         defer dreader.deinit();
 
-        var parser = PomParser.init(allocator, doc, dreader);
+        var parser = PomParser.init(doc, dreader);
         parser.identifier = self.identifier;
 
-        return parser.parse() catch |err| {
+        return parser.parse(allocator) catch |err| {
             if (err == PomParser.Errors.UnsupportedEncoding) {
                 self.lines = try recoverEncoding(allocator, self.lines);
                 self.recovery = true;
-                return self.parse();
+                return self.parse(allocator);
             } else {
                 return err;
             }
@@ -80,7 +78,6 @@ pub const PomParser = struct {
     document: Document,
     reader: Reader,
     identifier: []const u8 = undefined,
-    allocator: std.mem.Allocator,
 
     pub const Errors = error{
         OverReading,
@@ -90,11 +87,10 @@ pub const PomParser = struct {
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, doc: Document, innerReader: Reader) Self {
+    pub fn init(doc: Document, innerReader: Reader) Self {
         return .{
             .document = doc,
             .reader = innerReader,
-            .allocator = allocator,
         };
     }
 
@@ -125,21 +121,21 @@ pub const PomParser = struct {
         }
     }
 
-    fn parseProperties(self: *Self, map: *spec.PropertiesMap) !void {
+    fn parseProperties(self: *Self, allocator: std.mem.Allocator, map: *spec.PropertiesMap) !void {
         while (true) {
             const node = try self.reader.read();
             switch (node) {
                 .element_start => {
-                    const propertyName = try self.allocator.dupe(u8, self.reader.elementName());
-                    const ownedPropertyName = try self.allocator.dupe(u8, propertyName);
+                    const propertyName = try allocator.dupe(u8, self.reader.elementName());
+                    const ownedPropertyName = try allocator.dupe(u8, propertyName);
                     std.log.debug("[{s}] Reading property at: {s}", .{ self.identifier, propertyName });
                     const next = try self.reader.read();
                     std.debug.assert(next == .text or next == .element_end);
                     if (next == .element_end) continue;
                     const text = try self.reader.text();
-                    const ownedText = try self.allocator.dupe(u8, text);
+                    const ownedText = try allocator.dupe(u8, text);
                     std.debug.assert(try self.reader.read() == .element_end);
-                    try map.put(ownedPropertyName, ownedText);
+                    try map.put(allocator, ownedPropertyName, ownedText);
                 },
                 .element_end => {
                     std.debug.assert(std.mem.eql(u8, "properties", self.reader.elementName()));
@@ -151,17 +147,17 @@ pub const PomParser = struct {
         }
     }
 
-    fn parseParent(self: *Self) !spec.PomKey {
+    fn parseParent(self: *Self, allocator: std.mem.Allocator) !spec.PomKey {
         var parent: spec.PomKey = undefined;
         while (true) {
             const node = try self.reader.read();
             switch (node) {
                 .element_start => {
-                    const elementName = try self.allocator.dupe(u8, self.reader.elementName());
+                    const elementName = try allocator.dupe(u8, self.reader.elementName());
                     const next = try self.reader.read();
                     std.debug.assert(next == .text or next == .element_end);
                     if (next == .element_end) continue;
-                    const ownedText = try self.allocator.dupe(u8, try self.reader.text());
+                    const ownedText = try allocator.dupe(u8, try self.reader.text());
                     std.debug.assert(try self.reader.read() == .element_end);
                     std.log.debug("[{s}] Set parent to {s} property to {s}", .{ self.identifier, elementName, ownedText });
 
@@ -184,11 +180,11 @@ pub const PomParser = struct {
         }
     }
 
-    fn parseDependency(self: *Self) !spec.Asset {
+    fn parseDependency(self: *Self, allocator: std.mem.Allocator) !spec.Asset {
         var asset: spec.Asset = .{
             .scope = .compile,
             .optional = false,
-            .allocator = self.allocator,
+            .allocator = allocator,
             .group = undefined,
             .artifact = undefined,
             .version = "",
@@ -201,10 +197,10 @@ pub const PomParser = struct {
             switch (node) {
                 .element_start => {
                     std.log.debug("[{s}] Reading at level {d}", .{ self.identifier, self.reader.reader.element_names.items.len });
-                    const elementName = try self.allocator.dupe(u8, self.reader.elementName());
+                    const elementName = try allocator.dupe(u8, self.reader.elementName());
                     std.log.debug("[{s}] Reading at: {s}", .{ self.identifier, elementName });
                     std.debug.assert(try self.reader.read() == .text);
-                    const ownedText = try self.allocator.dupe(u8, try self.reader.text());
+                    const ownedText = try allocator.dupe(u8, try self.reader.text());
                     if (std.mem.eql(u8, "groupId", elementName)) {
                         asset.group = ownedText;
                     } else if (std.mem.eql(u8, "artifactId", elementName)) {
@@ -247,7 +243,7 @@ pub const PomParser = struct {
         }
     }
 
-    fn parseBreaking(self: *Self, pom: *spec.Pom) !void {
+    fn parseBreaking(self: *Self, allocator: std.mem.Allocator, pom: *spec.Pom) !void {
         _ = try self.readUntilTarget(.element_start, "project");
         _ = try self.reader.read(); // Move past <project ..>
 
@@ -259,8 +255,8 @@ pub const PomParser = struct {
                     if (self.reader.reader.node.? == .element_end and eql(u8, "dependencies", self.reader.elementName())) break;
 
                     // Reads up until cursor is at </dependency>, so we need to move one
-                    const dep = try self.parseDependency();
-                    try pom.dependencies.append(dep);
+                    const dep = try self.parseDependency(allocator);
+                    try pom.dependencies.append(allocator, dep);
                     _ = try self.reader.read(); // the text inside the element perhaps
                     _ = try self.reader.read();
                 }
@@ -271,16 +267,16 @@ pub const PomParser = struct {
                     if (self.reader.reader.node.? == .element_end and eql(u8, "dependencies", self.reader.elementName())) break;
 
                     // Reads up until cursor is at </dependency>, so we need to move one
-                    const dep = try self.parseDependency();
-                    try pom.dependencyManagement.append(dep);
+                    const dep = try self.parseDependency(allocator);
+                    try pom.dependencyManagement.append(allocator, dep);
                     _ = try self.reader.read(); // the text inside the element perhaps
                     _ = try self.reader.read();
                 }
                 _ = try self.readUntil(.element_end);
             } else if (std.mem.eql(u8, "properties", name)) {
-                try self.parseProperties(&pom.properties);
+                try self.parseProperties(allocator, &pom.properties);
             } else if (std.mem.eql(u8, "parent", name)) {
-                const key = try self.parseParent();
+                const key = try self.parseParent(allocator);
                 pom.parent = key;
             } else {
                 try self.reader.skipElement();
@@ -290,14 +286,14 @@ pub const PomParser = struct {
         }
     }
 
-    pub fn parse(self: *Self) !spec.Pom {
+    pub fn parse(self: *Self, allocator: std.mem.Allocator) !spec.Pom {
         var pom: spec.Pom = .{
-            .dependencies = spec.Dependencies.init(self.allocator),
-            .dependencyManagement = spec.Dependencies.init(self.allocator),
-            .properties = spec.PropertiesMap.init(self.allocator),
+            .dependencies = spec.Dependencies{},
+            .dependencyManagement = spec.Dependencies{},
+            .properties = spec.PropertiesMap{},
         };
 
-        self.parseBreaking(&pom) catch |err| {
+        self.parseBreaking(allocator, &pom) catch |err| {
             if (err == error.OverReading) {
                 return pom;
             } else if (err == error.MalformedXml and self.reader.reader.error_code == .xml_declaration_encoding_unsupported) {
@@ -371,12 +367,11 @@ test {
 
             var view = PomView{
                 .identifier = target,
-                .arena = arena,
                 .lines = lines,
             };
 
-            var pom = try view.parse();
-            defer pom.deinit();
+            var pom = try view.parse(alloc);
+            defer pom.deinit(alloc);
             if (expect.parent) |ref| {
                 try std.testing.expect(pom.parent != null);
                 const pom_parent = pom.parent.?;

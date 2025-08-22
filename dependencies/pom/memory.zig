@@ -1,7 +1,6 @@
 const std = @import("std");
 const spec = @import("spec.zig");
-const maven = @import("../spec.zig").defaultMaven;
-const DownloadManager = @import("../http.zig");
+const Http = @import("../http/root.zig").Http;
 const parser = @import("pom.zig");
 
 const encoding = "encoding=\"";
@@ -32,7 +31,7 @@ fn recoverEncoding(allocator: std.mem.Allocator, slice: []const u8) ![]const u8 
 
 pub const PomHive = struct {
     cache: spec.PomCache,
-    download: DownloadManager,
+    http: Http,
     arena: std.heap.ArenaAllocator,
     gpa: std.mem.Allocator,
 
@@ -41,12 +40,12 @@ pub const PomHive = struct {
         self.arena = std.heap.ArenaAllocator.init(gpa);
         const allocator = self.arena.allocator();
         self.cache = spec.PomCache.initContext(allocator, .{});
-        self.download = try DownloadManager.init(allocator);
+        self.http = try Http.init(allocator);
     }
 
     pub fn deinit(self: *PomHive) void {
         self.cache.deinit();
-        self.download.deinit();
+        self.http.deinit();
         self.arena.deinit();
     }
 
@@ -95,16 +94,12 @@ pub const PomHive = struct {
 
         if (!result.found_existing) {
             std.log.debug("Key {s}:{s}:{s} doesn't exist. Requesting", .{ key.group, key.artifactId, key.version });
-            const url = try key.fullRemotePathZ(allocator, maven.maven);
-            std.log.debug("Url -> {s}", .{url});
-            const xml = try self.download.download(allocator, url);
-            defer xml.deinit();
+            const xml = try self.http.download(allocator, key);
 
-            const slice = xml.asSlice();
             const identifier = try std.fmt.allocPrint(allocator, "{s}:{s}:{s}", .{ key.group, key.artifactId, key.version });
             defer allocator.free(identifier);
-            var view: parser.PomView = .{ .arena = std.heap.ArenaAllocator.init(self.gpa), .identifier = identifier, .lines = slice };
-            const pom = try view.parse();
+            var view: parser.PomView = .{ .identifier = identifier, .lines = xml };
+            const pom = try view.parse(allocator);
             result.value_ptr.* = pom;
         } else {
             std.log.debug("Key {s}:{s} exists", .{ key.group, key.artifactId });
@@ -132,3 +127,29 @@ pub const PomHive = struct {
         };
     }
 };
+
+test {
+    const t = std.testing;
+    var hive: PomHive = .{
+        .gpa = t.allocator,
+        .arena = std.heap.ArenaAllocator.init(t.allocator),
+        .cache = spec.PomCache.initContext(t.allocator, .{}),
+        .http = Http.mockedHttp(),
+    };
+    defer hive.deinit();
+
+    const junit = try hive.getPom(.{
+        .group = "junit",
+        .artifactId = "junit",
+        .version = "4.13.2",
+    });
+
+    defer junit.deinit(hive.arena.allocator());
+
+    try t.expect(junit.parent == null);
+    try t.expectEqual(junit, try hive.getPom(.{
+        .group = "junit",
+        .artifactId = "junit",
+        .version = "4.13.2",
+    }));
+}
