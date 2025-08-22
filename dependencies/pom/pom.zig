@@ -296,8 +296,13 @@ pub const PomParser = struct {
         self.parseBreaking(allocator, &pom) catch |err| {
             if (err == error.OverReading) {
                 return pom;
-            } else if (err == error.MalformedXml and self.reader.reader.error_code == .xml_declaration_encoding_unsupported) {
-                return error.UnsupportedEncoding;
+            } else if (err == error.MalformedXml) {
+                const inner = self.reader.reader;
+                if (inner.error_code == .xml_declaration_encoding_unsupported) {
+                    return error.UnsupportedEncoding;
+                } else {
+                    std.log.warn("Error reason: {any} at {d}", .{ inner.error_code, inner.error_pos });
+                }
             }
             return err;
         };
