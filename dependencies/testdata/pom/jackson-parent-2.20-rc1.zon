@@ -1,0 +1,11 @@
+.{
+    .descr = "rc version, popular package, multi level parent",
+    .parent = .{
+        .group = "com.fasterxml",
+        .artifact = "oss-parent",
+        .version = "70",
+    },
+    .dependencies = 0,
+    .dependencyManagement = 0,
+    .properties = 9,
+}

@@ -1,0 +1,11 @@
+.{
+    .descr = "rc version, popular package, multi level parent",
+    .parent = .{
+        .group = "com.fasterxml.jackson",
+        .artifact = "jackson-bom",
+        .version = "2.20.0-rc1",
+    },
+    .dependencies = 0,
+    .dependencyManagement = 4,
+    .properties = 5,
+}

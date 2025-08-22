@@ -1,0 +1,7 @@
+.{
+    .descr = "rc version, popular package, multi level parent",
+    .parent = null,
+    .dependencies = 0,
+    .dependencyManagement = 0,
+    .properties = 42,
+}
