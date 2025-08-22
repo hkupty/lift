@@ -132,7 +132,7 @@ pub const Worker = struct {
                         defer file.close();
 
                         download: for (0..10) |attempt| {
-                            const downloadedFile = self.dm.download(allocator, url) catch |err| {
+                            const downloadedFile = self.dm.download(url) catch |err| {
                                 switch (err) {
                                     DownloadManager.DependencyError.RetriableFailure => {
                                         std.log.err("Retrying {s}:{s} - {any}", .{ dep.group, dep.artifact, err });

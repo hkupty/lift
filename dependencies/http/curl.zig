@@ -13,6 +13,8 @@ pub const DependencyError = error{
 const LibcurlHttpImpl = @This();
 
 cert: std.ArrayList(u8),
+writer: curl.ResizableResponseWriter,
+
 api: curl.Easy,
 
 pub fn init(allocator: std.mem.Allocator) !LibcurlHttpImpl {
@@ -22,16 +24,16 @@ pub fn init(allocator: std.mem.Allocator) !LibcurlHttpImpl {
     return .{
         .cert = ca,
         .api = easy,
+        .writer = curl.ResizableResponseWriter.init(allocator),
     };
 }
 
-pub fn download(self: *const LibcurlHttpImpl, allocator: std.mem.Allocator, url: [:0]u8) ![]const u8 {
-    var writer = curl.ResizableResponseWriter.init(allocator);
-    defer writer.deinit();
+pub fn download(self: *LibcurlHttpImpl, url: [:0]u8) ![]const u8 {
+    self.writer.buffer.clearRetainingCapacity();
 
     self.api.reset();
     try self.api.setUrl(url);
-    try self.api.setAnyWriter(&writer.asAny());
+    try self.api.setAnyWriter(&self.writer.asAny());
 
     const response = try self.api.perform();
 
@@ -53,7 +55,7 @@ pub fn download(self: *const LibcurlHttpImpl, allocator: std.mem.Allocator, url:
         },
     }
 
-    return writer.asSlice();
+    return self.writer.asSlice();
 }
 
 pub fn deinit(self: *const LibcurlHttpImpl) void {

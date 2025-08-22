@@ -26,8 +26,9 @@ pub const Http = union(enum) {
     pub fn download(self: *Http, allocator: std.mem.Allocator, key: spec.PomKey) ![]const u8 {
         switch (self.*) {
             .http => |h| {
+                var http = @constCast(&h);
                 const url = try key.fullRemotePathZ(allocator, maven.maven);
-                return h.download(allocator, url);
+                return http.download(url);
             },
             .fake => |f| return f.download(allocator, key),
         }
