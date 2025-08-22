@@ -68,6 +68,7 @@ pub const PomView = struct {
                 self.recovery = true;
                 return self.parse(allocator);
             } else {
+                std.log.debug("This file failed: {s}", .{self.lines});
                 return err;
             }
         };
@@ -164,13 +165,13 @@ pub const PomParser = struct {
                     if (std.mem.eql(u8, "groupId", elementName)) {
                         parent.group = ownedText;
                     } else if (std.mem.eql(u8, "artifactId", elementName)) {
-                        parent.artifactId = ownedText;
+                        parent.artifact = ownedText;
                     } else if (std.mem.eql(u8, "version", elementName)) {
                         parent.version = ownedText;
                     }
                 },
                 .element_end => {
-                    std.log.debug("[{s}] Set parent to {s}:{s}:{s}", .{ self.identifier, parent.group, parent.artifactId, parent.version });
+                    std.log.debug("[{s}] Set parent to {s}:{s}:{s}", .{ self.identifier, parent.group, parent.artifact, parent.version });
                     std.debug.assert(std.mem.eql(u8, "parent", self.reader.elementName()));
                     return parent;
                 },
@@ -315,7 +316,7 @@ const Expect = struct {
     descr: []const u8,
     parent: ?struct {
         group: []const u8,
-        artifactId: []const u8,
+        artifact: []const u8,
         version: []const u8,
     },
     dependencies: usize,
@@ -381,7 +382,7 @@ test {
                 try std.testing.expect(pom.parent != null);
                 const pom_parent = pom.parent.?;
                 try std.testing.expectEqualStrings(ref.group, pom_parent.group);
-                try std.testing.expectEqualStrings(ref.artifactId, pom_parent.artifactId);
+                try std.testing.expectEqualStrings(ref.artifact, pom_parent.artifact);
                 try std.testing.expectEqualStrings(ref.version, pom_parent.version);
             } else {
                 try std.testing.expect(pom.parent == null);

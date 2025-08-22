@@ -9,6 +9,8 @@ pub const Scope = enum {
     import,
 };
 
+pub const Packaging = enum { jar, pom, other };
+
 pub const AssetType = union(enum) {
     jar: void,
     jar_sha1: void,

@@ -5,7 +5,7 @@ const config = @import("config");
 const Fake = @This();
 
 pub fn download(_: *const Fake, allocator: std.mem.Allocator, key: spec.PomKey) ![]const u8 {
-    const fname = try std.fmt.allocPrint(allocator, "{s}-{s}.pom", .{ key.artifactId, key.version });
+    const fname = try std.fmt.allocPrint(allocator, "{s}-{s}.pom", .{ key.artifact, key.version });
     const path = try std.fs.path.join(allocator, &[_][]const u8{ config.TEST_DATA_PATH, fname });
     defer allocator.free(fname);
     defer allocator.free(path);

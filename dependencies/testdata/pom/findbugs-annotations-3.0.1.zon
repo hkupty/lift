@@ -2,7 +2,7 @@
     .descr = "has a self-closing tag in <parent>",
     .parent = .{
         .group = "org.sonatype.oss",
-        .artifactId = "oss-parent",
+        .artifact = "oss-parent",
         .version = "7",
     },
     .dependencies = 1,

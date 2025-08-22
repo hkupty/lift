@@ -63,7 +63,6 @@ pub fn main() !void {
     defer dependencies.deinit();
 
     // NOTE: Dependency conflict resolution might cause changes the dependency list
-
     for (stepConfig.data) |directive| {
         const dep = try spec.Asset.parse(allocator, directive);
         errdefer dep.deinit();

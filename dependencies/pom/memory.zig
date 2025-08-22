@@ -29,14 +29,14 @@ fn recoverEncoding(allocator: std.mem.Allocator, slice: []const u8) ![]const u8 
     return out.toOwnedSlice();
 }
 
+/// The PomHive acts as a cache of inter-connected POM files, enabling them to resolve
+/// values based on parent-defined properties
 pub const PomHive = struct {
     cache: spec.PomCache,
     http: Http,
     arena: std.heap.ArenaAllocator,
-    gpa: std.mem.Allocator,
 
     pub fn init(self: *PomHive, gpa: std.mem.Allocator) !void {
-        self.gpa = gpa;
         self.arena = std.heap.ArenaAllocator.init(gpa);
         const allocator = self.arena.allocator();
         self.cache = spec.PomCache.initContext(allocator, .{});
@@ -71,7 +71,7 @@ pub const PomHive = struct {
 
                 const value = self.properties.get(propertyName) orelse v: {
                     if (self.parent) |parentKey| {
-                        // TODO recursively check for parent's property
+                        // TODO: recursively check for parent's property
                         const parent = self.hive.getPom(parentKey) catch {
                             break :bail;
                         };
@@ -92,27 +92,28 @@ pub const PomHive = struct {
         const allocator = self.arena.allocator();
         const result = try self.cache.getOrPut(key);
 
+        // TODO: Lazy-load pom files from local cache
         if (!result.found_existing) {
-            std.log.debug("Key {s}:{s}:{s} doesn't exist. Requesting", .{ key.group, key.artifactId, key.version });
+            const identifier = try std.fmt.allocPrint(allocator, "{s}:{s}:{s}", .{ key.group, key.artifact, key.version });
+            defer allocator.free(identifier);
+            std.log.debug("Key {s} doesn't exist. Requesting", .{identifier});
             const xml = try self.http.download(allocator, key);
 
-            const identifier = try std.fmt.allocPrint(allocator, "{s}:{s}:{s}", .{ key.group, key.artifactId, key.version });
-            defer allocator.free(identifier);
             var view: parser.PomView = .{ .identifier = identifier, .lines = xml };
             const pom = try view.parse(allocator);
             result.value_ptr.* = pom;
         } else {
-            std.log.debug("Key {s}:{s} exists", .{ key.group, key.artifactId });
+            std.log.debug("Key {s}:{s} exists", .{ key.group, key.artifact });
         }
 
         return result.value_ptr;
     }
 
     pub fn dependenciesForAsset(self: *PomHive, asset: *const spec.Asset) !PomDependencies {
-        const key: spec.PomKey = .{ .artifactId = asset.artifact, .group = asset.group, .version = asset.version };
-        std.log.debug("Looking up key {s}:{s}", .{ key.group, key.artifactId });
+        const key: spec.PomKey = .{ .artifact = asset.artifact, .group = asset.group, .version = asset.version };
+        std.log.debug("Looking up key {s}:{s}", .{ key.group, key.artifact });
         const pom = self.getPom(key) catch |err| {
-            std.log.warn("Failed to get pom for key {s}:{s}:{s}. {any}", .{ key.group, key.artifactId, key.version, err });
+            std.log.warn("Failed to get pom for key {s}:{s}:{s}. {any}", .{ key.group, key.artifact, key.version, err });
             return err;
         };
 
@@ -131,7 +132,6 @@ pub const PomHive = struct {
 test {
     const t = std.testing;
     var hive: PomHive = .{
-        .gpa = t.allocator,
         .arena = std.heap.ArenaAllocator.init(t.allocator),
         .cache = spec.PomCache.initContext(t.allocator, .{}),
         .http = Http.mockedHttp(),
@@ -140,7 +140,7 @@ test {
 
     const junit = try hive.getPom(.{
         .group = "junit",
-        .artifactId = "junit",
+        .artifact = "junit",
         .version = "4.13.2",
     });
 
@@ -149,7 +149,7 @@ test {
     try t.expect(junit.parent == null);
     try t.expectEqual(junit, try hive.getPom(.{
         .group = "junit",
-        .artifactId = "junit",
+        .artifact = "junit",
         .version = "4.13.2",
     }));
 }

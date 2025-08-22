@@ -2,7 +2,7 @@
     .descr = "has iso-8859-1 encoding",
     .parent = .{
         .group = "org.hamcrest",
-        .artifactId = "hamcrest-parent",
+        .artifact = "hamcrest-parent",
         .version = "1.3",
     },
     .dependencies = 0,

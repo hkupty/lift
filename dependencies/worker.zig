@@ -71,6 +71,7 @@ pub const Worker = struct {
     baseAllocator: std.mem.Allocator,
     active: std.atomic.Value(bool),
     hasFailure: bool = false,
+    // TODO: Use http indirection instead
     dm: DownloadManager,
     lr: LocalRepo,
 
