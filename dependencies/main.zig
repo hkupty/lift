@@ -5,9 +5,11 @@ const config = @import("config.zig");
 const worker = @import("worker.zig");
 const Pool = worker.WorkerPool;
 const spec = @import("spec.zig");
+const pom_spec = @import("pom/spec.zig");
 const DownloadManager = @import("http/curl.zig");
 const json = std.json;
 const PomHive = @import("pom/memory.zig").PomHive;
+const PomResolutionQueue = @import("pom/queue.zig").PomResolutionQueue;
 const LocaLRepo = @import("local_repo.zig").LocalRepo;
 
 // HACK: Conflict resolution is "first seen wins" - needs configuration
@@ -46,7 +48,7 @@ pub fn main() !void {
     var localrepo = try LocaLRepo.init(stepConfig.cachePath);
     defer localrepo.deinit();
 
-    var failure = false;
+    const failure = false;
 
     var pool = try Pool.init(allocator, localrepo);
     defer {
@@ -62,107 +64,119 @@ pub fn main() !void {
     var dependencies = DependencyArrayMap.init(allocator);
     defer dependencies.deinit();
 
-    // NOTE: Dependency conflict resolution might cause changes the dependency list
+    var dependencyQueue = PomResolutionQueue{};
+
     for (stepConfig.data) |directive| {
-        const dep = try spec.Asset.parse(allocator, directive);
-        errdefer dep.deinit();
-        const identifier = try dep.identifier(allocator);
-
-        const value = try dependencies.getOrPut(identifier);
-
-        if (value.found_existing) {
-            // TODO: Resolve possible version conflict
-            std.log.info("Duplicated dependency declaration: {s}. Skipping", .{identifier});
-            continue;
-        }
-        std.log.debug("Inserting {s} in the dependency list", .{identifier});
-
-        value.value_ptr.* = dep;
+        var key = try pom_spec.PomKey.parse(allocator, directive);
+        errdefer key.deinit(allocator);
+        try dependencyQueue.enqueue(allocator, key, .first_write_wins);
     }
 
-    var ix: usize = 0;
-    while (true) {
-        const values = dependencies.values();
-        if (values.len <= ix) break;
-        const dep = values[ix];
-
-        std.log.debug("Requesting {s}:{s}", .{ dep.group, dep.artifact });
-        var iter = try pomHive.dependenciesForAsset(&dep);
-
-        while (iter.next()) |asset| {
-            switch (asset.scope) {
-                .system, .test_scope => {
-                    continue;
-                },
-                else => {},
-            }
-
-            const identifier = try asset.identifier(allocator);
-
-            if (asset.optional) {
-                std.log.debug("Asset {s} is optional. Skipping. Add dependency to the list explicitly if necessary.", .{identifier});
-                continue;
-            }
-
-            const next = try dependencies.getOrPut(identifier);
-
-            if (next.found_existing) {
-                std.log.debug("{s} is already in the dependency list", .{identifier});
-                if (!std.mem.eql(u8, next.value_ptr.version, asset.version)) {
-                    std.log.warn("Asset {s} already included at a different version {s} != {s}", .{
-                        identifier,
-                        next.value_ptr.version,
-                        asset.version,
-                    });
-                }
-                continue;
-            } else {
-                std.log.debug("[{s}:{s}:{s}] Inserting {s}", .{ dep.group, dep.artifact, dep.version, identifier });
-                next.value_ptr.* = asset;
-            }
-        }
-        ix += 1;
-    }
-
-    // HACK: Maybe we don't need to duplicate the dependency size in the array list, but at least this avoids resizing
-    var compilation = try std.ArrayList([]u8).initCapacity(allocator, dependencies.count());
-    var runtime = try std.ArrayList([]u8).initCapacity(allocator, dependencies.count());
-
-    for (dependencies.values()) |dep| {
-        const path = try localrepo.absolutePath(allocator, dep, .jar);
-        switch (dep.scope) {
-            .import, .system, .test_scope => unreachable,
-            .runtime => runtime.appendAssumeCapacity(path),
-            .compile, .provided => compilation.appendAssumeCapacity(path),
-        }
-
-        const exists = localrepo.exists(allocator, dep, .jar) catch |err| {
-            std.log.err("Failed to verify if jar exists, skipping: {any}", .{err});
-            failure = true;
-            continue;
-        };
-        if (!exists) {
-            const item = try allocator.create(worker.WorkItem);
-            item.* = worker.WorkItem.Dep(dep);
-            pool.enqueue(item) catch |err| {
-                std.log.err("Unable to enqueue: {any}", .{err});
-                failure = true;
-            };
-        }
-    }
-
-    const outputFile = try std.fs.openFileAbsolute(stepConfig.outputPath, .{ .mode = .read_write });
-    defer outputFile.close();
-
-    const out: Output = .{
-        .compilationClasspath = try compilation.toOwnedSlice(),
-        .runtimeClasspath = try runtime.toOwnedSlice(),
+    dependencyQueue.resolve(allocator, &pomHive) catch |err| {
+        std.log.err("Failed to resolve versions due to: {any}", .{err});
     };
-    try json.stringify(
-        out,
-        .{ .whitespace = .minified },
-        outputFile.writer(),
-    );
+
+    // // NOTE: Dependency conflict resolution might cause changes the dependency list
+    // for (stepConfig.data) |directive| {
+    //     const dep = try spec.Asset.parse(allocator, directive);
+    //     errdefer dep.deinit();
+    //     const identifier = try dep.identifier(allocator);
+    //
+    //     const value = try dependencies.getOrPut(identifier);
+    //
+    //     if (value.found_existing) {
+    //         // TODO: Resolve possible version conflict
+    //         std.log.info("Duplicated dependency declaration: {s}. Skipping", .{identifier});
+    //         continue;
+    //     }
+    //     std.log.debug("Inserting {s} in the dependency list", .{identifier});
+    //
+    //     value.value_ptr.* = dep;
+    // }
+    //
+    // var ix: usize = 0;
+    // while (true) {
+    //     const values = dependencies.values();
+    //     if (values.len <= ix) break;
+    //     const dep = values[ix];
+    //
+    //     std.log.debug("Requesting {s}:{s}", .{ dep.group, dep.artifact });
+    //     var iter = try pomHive.dependenciesForAsset(&dep);
+    //
+    //     while (iter.next()) |asset| {
+    //         switch (asset.scope) {
+    //             .system, .test_scope => {
+    //                 continue;
+    //             },
+    //             else => {},
+    //         }
+    //
+    //         const identifier = try asset.identifier(allocator);
+    //
+    //         if (asset.optional) {
+    //             std.log.debug("Asset {s} is optional. Skipping. Add dependency to the list explicitly if necessary.", .{identifier});
+    //             continue;
+    //         }
+    //
+    //         const next = try dependencies.getOrPut(identifier);
+    //
+    //         if (next.found_existing) {
+    //             std.log.debug("{s} is already in the dependency list", .{identifier});
+    //             if (!std.mem.eql(u8, next.value_ptr.version, asset.version)) {
+    //                 std.log.warn("Asset {s} already included at a different version {s} != {s}", .{
+    //                     identifier,
+    //                     next.value_ptr.version,
+    //                     asset.version,
+    //                 });
+    //             }
+    //             continue;
+    //         } else {
+    //             std.log.debug("[{s}:{s}:{s}] Inserting {s}", .{ dep.group, dep.artifact, dep.version, identifier });
+    //             next.value_ptr.* = asset;
+    //         }
+    //     }
+    //     ix += 1;
+    // }
+
+    // // HACK: Maybe we don't need to duplicate the dependency size in the array list, but at least this avoids resizing
+    // var compilation = try std.ArrayList([]u8).initCapacity(allocator, dependencies.count());
+    // var runtime = try std.ArrayList([]u8).initCapacity(allocator, dependencies.count());
+    //
+    // for (dependencies.values()) |dep| {
+    //     const path = try localrepo.absolutePath(allocator, dep, .jar);
+    //     switch (dep.scope) {
+    //         .import, .system, .test_scope => unreachable,
+    //         .runtime => runtime.appendAssumeCapacity(path),
+    //         .compile, .provided => compilation.appendAssumeCapacity(path),
+    //     }
+    //
+    //     const exists = localrepo.exists(allocator, dep, .jar) catch |err| {
+    //         std.log.err("Failed to verify if jar exists, skipping: {any}", .{err});
+    //         failure = true;
+    //         continue;
+    //     };
+    //     if (!exists) {
+    //         const item = try allocator.create(worker.WorkItem);
+    //         item.* = worker.WorkItem.Dep(dep);
+    //         pool.enqueue(item) catch |err| {
+    //             std.log.err("Unable to enqueue: {any}", .{err});
+    //             failure = true;
+    //         };
+    //     }
+    // }
+    //
+    // const outputFile = try std.fs.openFileAbsolute(stepConfig.outputPath, .{ .mode = .read_write });
+    // defer outputFile.close();
+    //
+    // const out: Output = .{
+    //     .compilationClasspath = try compilation.toOwnedSlice(),
+    //     .runtimeClasspath = try runtime.toOwnedSlice(),
+    // };
+    // try json.stringify(
+    //     out,
+    //     .{ .whitespace = .minified },
+    //     outputFile.writer(),
+    // );
 }
 
 test {

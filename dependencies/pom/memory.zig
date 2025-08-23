@@ -88,7 +88,51 @@ pub const PomHive = struct {
         }
     };
 
-    fn getPom(self: *PomHive, key: spec.PomKey) !*spec.Pom {
+    pub fn resolvePomVersions(self: *PomHive, pom: *spec.Pom) !void {
+        for (pom.dependencies.items, 0..) |dep, ix| {
+            if (std.mem.indexOfScalar(u8, dep.version, '$')) |match| bail: {
+                const propertyEnd = std.mem.indexOfScalar(u8, dep.version, '}').?;
+
+                const propertyStart = match + 2;
+                const propertyName = dep.version[propertyStart..propertyEnd];
+
+                const value = pom.properties.get(propertyName) orelse v: {
+                    if (pom.parent) |parentKey| {
+                        // TODO: recursively check for parent's property
+                        const parent = try self.getPom(parentKey);
+                        std.log.debug("Using parent's {s} property value", .{propertyName});
+                        break :v parent.properties.get(propertyName).?;
+                    }
+                    break :bail;
+                };
+
+                pom.dependencies.items[ix] = dep.withVersion(value);
+            }
+        }
+
+        for (pom.dependencyManagement.items, 0..) |dep, ix| {
+            if (std.mem.indexOfScalar(u8, dep.version, '$')) |match| bail: {
+                const propertyEnd = std.mem.indexOfScalar(u8, dep.version, '}').?;
+
+                const propertyStart = match + 2;
+                const propertyName = dep.version[propertyStart..propertyEnd];
+
+                const value = pom.properties.get(propertyName) orelse v: {
+                    if (pom.parent) |parentKey| {
+                        // TODO: recursively check for parent's property
+                        const parent = try self.getPom(parentKey);
+                        std.log.debug("Using parent's {s} property value", .{propertyName});
+                        break :v parent.properties.get(propertyName).?;
+                    }
+                    break :bail;
+                };
+
+                pom.dependencies.items[ix] = dep.withVersion(value);
+            }
+        }
+    }
+
+    pub fn getPom(self: *PomHive, key: spec.PomKey) !*spec.Pom {
         const allocator = self.arena.allocator();
         const result = try self.cache.getOrPut(key);
 

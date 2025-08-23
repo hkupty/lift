@@ -45,6 +45,17 @@ pub const Asset = struct {
     scope: Scope = .compile,
     allocator: std.mem.Allocator,
 
+    pub fn withVersion(self: *const Asset, version: []const u8) Asset {
+        return .{
+            .group = self.group,
+            .artifact = self.artifact,
+            .version = version,
+            .optional = self.optional,
+            .scope = self.scope,
+            .allocator = self.allocator,
+        };
+    }
+
     pub fn parse(allocator: std.mem.Allocator, directive: []const u8) !Asset {
         var iter = std.mem.splitSequence(u8, directive, ":");
 

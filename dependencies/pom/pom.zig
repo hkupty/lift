@@ -129,7 +129,6 @@ pub const PomParser = struct {
                 .element_start => {
                     const propertyName = try allocator.dupe(u8, self.reader.elementName());
                     const ownedPropertyName = try allocator.dupe(u8, propertyName);
-                    std.log.debug("[{s}] Reading property at: {s}", .{ self.identifier, propertyName });
                     const next = try self.reader.read();
                     std.debug.assert(next == .text or next == .element_end);
                     if (next == .element_end) continue;
@@ -160,7 +159,6 @@ pub const PomParser = struct {
                     if (next == .element_end) continue;
                     const ownedText = try allocator.dupe(u8, try self.reader.text());
                     std.debug.assert(try self.reader.read() == .element_end);
-                    std.log.debug("[{s}] Set parent to {s} property to {s}", .{ self.identifier, elementName, ownedText });
 
                     if (std.mem.eql(u8, "groupId", elementName)) {
                         parent.group = ownedText;
@@ -171,9 +169,24 @@ pub const PomParser = struct {
                     }
                 },
                 .element_end => {
-                    std.log.debug("[{s}] Set parent to {s}:{s}:{s}", .{ self.identifier, parent.group, parent.artifact, parent.version });
                     std.debug.assert(std.mem.eql(u8, "parent", self.reader.elementName()));
                     return parent;
+                },
+                .eof => return error.OverReading,
+                else => {},
+            }
+        }
+    }
+
+    fn parsePackaging(self: *Self) !spec.Packaging {
+        while (true) {
+            const node = try self.reader.read();
+            switch (node) {
+                .text => {
+                    const text = try self.reader.text();
+                    const pkg: spec.Packaging = if (std.mem.eql(u8, "jar", text)) .jar else if (std.mem.eql(u8, "pom", text)) .pom else .other;
+                    std.debug.assert(try self.reader.read() == .element_end);
+                    return pkg;
                 },
                 .eof => return error.OverReading,
                 else => {},
@@ -197,9 +210,7 @@ pub const PomParser = struct {
             const node = try self.reader.read();
             switch (node) {
                 .element_start => {
-                    std.log.debug("[{s}] Reading at level {d}", .{ self.identifier, self.reader.reader.element_names.items.len });
                     const elementName = try allocator.dupe(u8, self.reader.elementName());
-                    std.log.debug("[{s}] Reading at: {s}", .{ self.identifier, elementName });
                     std.debug.assert(try self.reader.read() == .text);
                     const ownedText = try allocator.dupe(u8, try self.reader.text());
                     if (std.mem.eql(u8, "groupId", elementName)) {
@@ -276,6 +287,8 @@ pub const PomParser = struct {
                 _ = try self.readUntil(.element_end);
             } else if (std.mem.eql(u8, "properties", name)) {
                 try self.parseProperties(allocator, &pom.properties);
+            } else if (std.mem.eql(u8, "packaging", name)) {
+                pom.packaging = try self.parsePackaging();
             } else if (std.mem.eql(u8, "parent", name)) {
                 const key = try self.parseParent(allocator);
                 pom.parent = key;

@@ -7,9 +7,12 @@ pub const PomKey = struct {
     artifact: []const u8,
     version: []const u8,
 
+    const Error = error{
+        MalformedIdentifier,
+    };
+
     pub const Context = struct {
         pub fn hash(_: *const Context, key: PomKey) u32 {
-            std.log.debug("Hashing key {s}:{s}", .{ key.group, key.artifact });
             var hashValue = xxhash.init(0);
             hashValue.update(key.group);
             hashValue.update(key.artifact);
@@ -19,7 +22,6 @@ pub const PomKey = struct {
         }
 
         pub fn eql(_: *const Context, a: PomKey, b: PomKey) bool {
-            std.log.debug("comparing key {s}:{s} with {s}:{s}", .{ a.group, a.artifact, b.group, b.artifact });
             return std.mem.eql(u8, a.group, b.group) and
                 std.mem.eql(u8, a.artifact, b.artifact) and
                 std.mem.eql(u8, a.version, b.version);
@@ -27,8 +29,7 @@ pub const PomKey = struct {
     };
 
     pub const IgnoreVersionArrayHashMapContext = struct {
-        pub fn hash(_: Context, key: PomKey) u32 {
-            std.log.debug("Hashing key {s}:{s}", .{ key.group, key.artifact });
+        pub fn hash(_: @This(), key: PomKey) u32 {
             var hashValue = xxhash.init(0);
             hashValue.update(key.group);
             hashValue.update(key.artifact);
@@ -36,8 +37,7 @@ pub const PomKey = struct {
             return hashValue.final();
         }
 
-        pub fn eql(_: Context, a: PomKey, b: PomKey, _: usize) bool {
-            std.log.debug("comparing key {s}:{s} with {s}:{s}", .{ a.group, a.artifact, b.group, b.artifact });
+        pub fn eql(_: @This(), a: PomKey, b: PomKey, _: usize) bool {
             return std.mem.eql(u8, a.group, b.group) and
                 std.mem.eql(u8, a.artifact, b.artifact);
         }
@@ -56,6 +56,28 @@ pub const PomKey = struct {
         };
 
         return std.mem.joinZ(allocator, "/", &parts);
+    }
+
+    pub fn parse(allocator: std.mem.Allocator, identifier: []const u8) !PomKey {
+        const groupIx = std.mem.indexOfScalar(u8, identifier, ':') orelse return Error.MalformedIdentifier;
+        const group = try allocator.dupe(u8, identifier[0..groupIx]);
+        errdefer allocator.free(group);
+        const artifactIx = std.mem.indexOfScalarPos(u8, identifier, groupIx + 1, ':') orelse return Error.MalformedIdentifier;
+        const artifact = try allocator.dupe(u8, identifier[groupIx + 1 .. artifactIx]);
+        errdefer allocator.free(artifact);
+        const version = try allocator.dupe(u8, identifier[artifactIx + 1 ..]);
+
+        return .{
+            .group = group,
+            .artifact = artifact,
+            .version = version,
+        };
+    }
+
+    pub fn deinit(self: *PomKey, allocator: std.mem.Allocator) void {
+        allocator.free(self.group);
+        allocator.free(self.artifact);
+        allocator.free(self.version);
     }
 };
 
